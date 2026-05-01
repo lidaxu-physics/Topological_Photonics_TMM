@@ -879,4 +879,12 @@ if __name__ == "__main__":
     out_path = "lattice_NxN_TMM_demo.png"
     plt.savefig(out_path, dpi=140, bbox_inches="tight")
     print(f"Saved {out_path}")
-    plt.show()
+
+    # Only call plt.show() if matplotlib has an interactive backend.
+    # Otherwise, just rely on the saved PNG file (avoids a warning on
+    # systems where matplotlib defaulted to Agg).
+    import matplotlib
+    if matplotlib.get_backend().lower() not in ("agg", "pdf", "ps", "svg"):
+        plt.show()
+    else:
+        print("(non-interactive matplotlib backend — open the PNG to view)")

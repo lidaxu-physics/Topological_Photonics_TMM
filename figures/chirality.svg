@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 380" width="700" height="380">
+  <style>
+    .site-ring { fill: none; stroke: #b85c2c; stroke-width: 3; }
+    .link-ring { fill: none; stroke: #2a6e6a; stroke-width: 3; }
+    .arrow { fill: #1c1814; stroke: #1c1814; }
+    .arrow-site { fill: #b85c2c; stroke: #b85c2c; }
+    .arrow-link { fill: #2a6e6a; stroke: #2a6e6a; }
+    .label { font: 13px sans-serif; fill: #1c1814; }
+    .label-i { font: italic 13px serif; fill: #1c1814; }
+    .label-small { font: 11px sans-serif; fill: #555; }
+    .label-title { font: bold 14px sans-serif; fill: #1c1814; }
+    .dc-line { stroke: #999; stroke-width: 1; stroke-dasharray: 2 2; fill: none; }
+  </style>
+
+  <text class="label-title" x="350" y="22" text-anchor="middle">DC phase matching: site CCW, link CW (opposite chirality)</text>
+
+  <!-- Two adjacent rings: site at left, link in middle, site at right -->
+  <!-- Site 1 -->
+  <circle class="site-ring" cx="160" cy="200" r="80" />
+  <text class="label" x="160" y="195" text-anchor="middle" style="font-weight:bold">site ring</text>
+  <text class="label-small" x="160" y="212" text-anchor="middle">CCW</text>
+
+  <!-- Link in middle -->
+  <circle class="link-ring" cx="350" cy="200" r="80" />
+  <text class="label" x="350" y="195" text-anchor="middle" style="font-weight:bold">link ring</text>
+  <text class="label-small" x="350" y="212" text-anchor="middle">CW</text>
+
+  <!-- Site 2 -->
+  <circle class="site-ring" cx="540" cy="200" r="80" />
+  <text class="label" x="540" y="195" text-anchor="middle" style="font-weight:bold">site ring</text>
+  <text class="label-small" x="540" y="212" text-anchor="middle">CCW</text>
+
+  <!-- DC connection lines (close approach between rings) -->
+  <line class="dc-line" x1="240" y1="200" x2="270" y2="200" />
+  <line class="dc-line" x1="430" y1="200" x2="460" y2="200" />
+
+  <!-- DC labels -->
+  <text class="label-small" x="255" y="195" text-anchor="middle">DC</text>
+  <text class="label-small" x="445" y="195" text-anchor="middle">DC</text>
+
+  <!-- Direction arrows around each ring -->
+  <!-- Site 1 (CCW) at right side (where DC is): field points DOWN -->
+  <polygon class="arrow-site" points="232,210 248,205 240,225" />
+  <text class="label-i" x="250" y="240" style="fill:#b85c2c">↓</text>
+
+  <!-- Link (CW) at left side (where DC is): field points DOWN -->
+  <polygon class="arrow-link" points="262,210 278,205 270,225" />
+
+  <!-- Now both at 200, going down at the DC -->
+  <!-- Actually let me redo as visible arrows on the rings -->
+
+  <!-- Site 1 ring direction marker (top) -->
+  <path d="M 130 130 Q 145 122 160 122" fill="none" stroke="#b85c2c" stroke-width="2" />
+  <polygon class="arrow-site" points="158,118 168,122 158,127" />
+  <text class="label-small" x="115" y="130" text-anchor="end" style="fill:#b85c2c">CCW</text>
+
+  <!-- Link ring direction marker (top) -->
+  <path d="M 380 130 Q 365 122 350 122" fill="none" stroke="#2a6e6a" stroke-width="2" />
+  <polygon class="arrow-link" points="352,118 342,122 352,127" />
+  <text class="label-small" x="395" y="130" style="fill:#2a6e6a">CW</text>
+
+  <!-- At the DC (right side of site 1, left side of link), both fields point downward (in same direction) -->
+  <!-- Site at right edge: CCW means going from top to right means field down -->
+  <!-- Link at left edge: CW means going from top to left means field down? Let me think... -->
+  <!-- At top of CCW site, field moves leftward; right side of CCW site, field moves down. ✓ -->
+  <!-- At top of CW link, field moves rightward; left side of CW link, field moves down. ✓ -->
+  <!-- So at the DC both fields locally point DOWN. Phase matched. -->
+
+  <!-- Big down arrows at the DC indicating phase-matched flow -->
+  <line x1="250" y1="180" x2="250" y2="245" stroke="#1c1814" stroke-width="2" />
+  <polygon class="arrow" points="244,240 250,255 256,240" />
+  <text class="label-small" x="250" y="275" text-anchor="middle">both fields ↓ at DC</text>
+
+  <line x1="445" y1="180" x2="445" y2="245" stroke="#1c1814" stroke-width="2" />
+  <polygon class="arrow" points="439,240 445,255 451,240" />
+  <text class="label-small" x="445" y="275" text-anchor="middle">phase-matched</text>
+
+  <!-- Bottom annotation -->
+  <text class="label" x="350" y="320" text-anchor="middle">For a directional coupler to work, the two waveguide fields must be co-propagating at the coupling point.</text>
+  <text class="label" x="350" y="340" text-anchor="middle">Site (CCW) → field down at right edge.  Link (CW) → field down at left edge.  Match!</text>
+  <text class="label-small" x="350" y="360" text-anchor="middle">If the link were also CCW, the two fields would be counter-propagating at the DC and the coupling would vanish.</text>
+</svg>

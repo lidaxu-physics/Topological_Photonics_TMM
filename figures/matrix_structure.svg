@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 380" width="700" height="380">
+  <style>
+    .frame { fill: none; stroke: #1c1814; stroke-width: 1.5; }
+    .diag { fill: #1c1814; }
+    .ring-block { fill: #b85c2c; opacity: 0.55; }
+    .link-block { fill: #2a6e6a; opacity: 0.55; }
+    .dc-mark { fill: #4a4d8e; opacity: 0.85; }
+    .label { font: 13px sans-serif; fill: #1c1814; }
+    .label-small { font: 11px sans-serif; fill: #555; }
+    .label-title { font: bold 14px sans-serif; fill: #1c1814; }
+  </style>
+
+  <text class="label-title" x="350" y="22" text-anchor="middle">Sparsity pattern of the TMM matrix M(ω) for a 2×2 plaquette</text>
+
+  <!-- Matrix frame -->
+  <rect class="frame" x="100" y="50" width="320" height="320" />
+
+  <!-- Diagonal: identity (light gray dots not drawn) — show as faint bg -->
+  <line x1="100" y1="50" x2="420" y2="370" stroke="#1c1814" stroke-width="0.7" stroke-dasharray="2 2" />
+
+  <!-- Block diagonal: each ring contributes a Nz x Nz subdiagonal block (band structure)
+       Site rings: 4 blocks of size 16, link rings: 4 blocks of size 16 -->
+
+  <!-- 8 blocks total along the diagonal, each 40 px wide -->
+  <!-- Sub-diagonal band: each block has -p_site/-p_link on subdiagonal -->
+  <g>
+    <!-- Site ring 1 -->
+    <line x1="100" y1="80" x2="135" y2="115" class="ring-block" stroke="#b85c2c" stroke-width="3" opacity="0.7" />
+    <line x1="140" y1="120" x2="175" y2="155" class="ring-block" stroke="#b85c2c" stroke-width="3" opacity="0.7" />
+    <line x1="180" y1="160" x2="215" y2="195" class="ring-block" stroke="#b85c2c" stroke-width="3" opacity="0.7" />
+    <line x1="220" y1="200" x2="255" y2="235" class="ring-block" stroke="#b85c2c" stroke-width="3" opacity="0.7" />
+    <line x1="260" y1="240" x2="295" y2="275" class="link-block" stroke="#2a6e6a" stroke-width="3" opacity="0.7" />
+    <line x1="300" y1="280" x2="335" y2="315" class="link-block" stroke="#2a6e6a" stroke-width="3" opacity="0.7" />
+    <line x1="340" y1="320" x2="375" y2="355" class="link-block" stroke="#2a6e6a" stroke-width="3" opacity="0.7" />
+    <line x1="380" y1="360" x2="420" y2="370" class="link-block" stroke="#2a6e6a" stroke-width="3" opacity="0.7" />
+  </g>
+
+  <!-- DC entries: off-block-diagonal sparse points (cross-coupling site<->link) -->
+  <!-- Just sketch a few -->
+  <circle cx="120" cy="270" r="4" class="dc-mark" />
+  <circle cx="160" cy="290" r="4" class="dc-mark" />
+  <circle cx="270" cy="120" r="4" class="dc-mark" />
+  <circle cx="290" cy="160" r="4" class="dc-mark" />
+  <circle cx="200" cy="320" r="4" class="dc-mark" />
+  <circle cx="240" cy="340" r="4" class="dc-mark" />
+  <circle cx="320" cy="200" r="4" class="dc-mark" />
+  <circle cx="340" cy="220" r="4" class="dc-mark" />
+  <circle cx="160" cy="370" r="4" class="dc-mark" />
+  <circle cx="380" cy="160" r="4" class="dc-mark" />
+
+  <!-- Block boundaries -->
+  <g stroke="#aaa" stroke-width="0.6" stroke-dasharray="2 2" fill="none">
+    <line x1="140" y1="50" x2="140" y2="370" />
+    <line x1="180" y1="50" x2="180" y2="370" />
+    <line x1="220" y1="50" x2="220" y2="370" />
+    <line x1="260" y1="50" x2="260" y2="370" />
+    <line x1="300" y1="50" x2="300" y2="370" />
+    <line x1="340" y1="50" x2="340" y2="370" />
+    <line x1="380" y1="50" x2="380" y2="370" />
+    <line x1="100" y1="90" x2="420" y2="90" />
+    <line x1="100" y1="130" x2="420" y2="130" />
+    <line x1="100" y1="170" x2="420" y2="170" />
+    <line x1="100" y1="210" x2="420" y2="210" />
+    <line x1="100" y1="250" x2="420" y2="250" />
+    <line x1="100" y1="290" x2="420" y2="290" />
+    <line x1="100" y1="330" x2="420" y2="330" />
+  </g>
+
+  <!-- Block labels -->
+  <text class="label-small" x="120" y="45" text-anchor="middle">site(0,0)</text>
+  <text class="label-small" x="160" y="45" text-anchor="middle">site(1,0)</text>
+  <text class="label-small" x="200" y="45" text-anchor="middle">site(0,1)</text>
+  <text class="label-small" x="240" y="45" text-anchor="middle">site(1,1)</text>
+  <text class="label-small" x="280" y="45" text-anchor="middle">V_L</text>
+  <text class="label-small" x="320" y="45" text-anchor="middle">V_R</text>
+  <text class="label-small" x="360" y="45" text-anchor="middle">H_bot</text>
+  <text class="label-small" x="400" y="45" text-anchor="middle">H_top</text>
+
+  <!-- Legend -->
+  <g transform="translate(450, 80)">
+    <rect class="frame" x="0" y="0" width="220" height="180" fill="white" stroke="#999" />
+    <text class="label" x="110" y="20" text-anchor="middle" style="font-weight:bold">legend</text>
+    <line x1="15" y1="40" x2="35" y2="40" stroke="#1c1814" stroke-width="0.7" stroke-dasharray="2 2" />
+    <text class="label-small" x="45" y="44">+1 on diagonal (identity)</text>
+    <line x1="15" y1="65" x2="35" y2="65" class="ring-block" stroke="#b85c2c" stroke-width="3" opacity="0.7" />
+    <text class="label-small" x="45" y="69">−p_site on site-ring sub-diag</text>
+    <line x1="15" y1="90" x2="35" y2="90" class="link-block" stroke="#2a6e6a" stroke-width="3" opacity="0.7" />
+    <text class="label-small" x="45" y="94">−p_link on link-ring sub-diag</text>
+    <circle cx="25" cy="115" r="4" class="dc-mark" />
+    <text class="label-small" x="45" y="119">DC cross-couplings (sparse)</text>
+    <text class="label-small" x="15" y="150">~99.7% of entries</text>
+    <text class="label-small" x="15" y="165">are zero!</text>
+  </g>
+</svg>

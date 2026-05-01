@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 360" width="700" height="360">
+  <style>
+    .axis { fill: none; stroke: #1c1814; stroke-width: 1.5; }
+    .label { font: 13px sans-serif; fill: #1c1814; }
+    .label-small { font: 11px sans-serif; fill: #555; }
+    .label-i { font: italic 13px serif; fill: #1c1814; }
+    .site-curve { fill: none; stroke: #b85c2c; stroke-width: 2.5; }
+    .link-curve { fill: none; stroke: #2a6e6a; stroke-width: 2.5; }
+    .legend-site { fill: #b85c2c; }
+    .legend-link { fill: #2a6e6a; }
+  </style>
+
+  <!-- Title -->
+  <text class="label" x="350" y="20" text-anchor="middle" style="font-weight:bold">Site and link ring resonances vs frequency</text>
+
+  <!-- Axes -->
+  <line class="axis" x1="60" y1="280" x2="660" y2="280" />
+  <line class="axis" x1="60" y1="50" x2="60" y2="290" />
+
+  <!-- omega tick marks -->
+  <line class="axis" x1="60" y1="280" x2="60" y2="285" />
+  <line class="axis" x1="180" y1="280" x2="180" y2="285" />
+  <line class="axis" x1="300" y1="280" x2="300" y2="285" />
+  <line class="axis" x1="420" y1="280" x2="420" y2="285" />
+  <line class="axis" x1="540" y1="280" x2="540" y2="285" />
+  <line class="axis" x1="660" y1="280" x2="660" y2="285" />
+
+  <text class="label" x="180" y="300" text-anchor="middle">−FSR</text>
+  <text class="label" x="300" y="300" text-anchor="middle">−FSR/2</text>
+  <text class="label" x="420" y="300" text-anchor="middle">0</text>
+  <text class="label" x="540" y="300" text-anchor="middle">+FSR/2</text>
+  <text class="label" x="660" y="300" text-anchor="middle">+FSR</text>
+  <text class="label-i" x="660" y="320" text-anchor="end">ω (relative to ω₀)</text>
+
+  <text class="label" x="35" y="170" text-anchor="middle" transform="rotate(-90, 35, 170)">|E_ring|² (a.u.)</text>
+
+  <!-- Site ring resonances: peaks at omega = 0, ±FSR -->
+  <!-- Lorentzian-ish: gamma centered -->
+  <path class="site-curve" d="
+    M 60 275
+    L 100 275
+    Q 110 275 120 270 L 140 270 Q 145 270 150 268
+    L 175 268 Q 178 268 180 60
+    L 180 60 L 180 268
+    Q 182 268 185 268
+    L 215 268 Q 220 268 225 270
+    L 280 270 L 290 273 L 300 275
+    L 310 275 Q 315 275 320 270
+    L 415 270 Q 419 270 420 60
+    L 420 60 L 420 268
+    Q 421 268 425 268
+    L 530 268 Q 535 268 540 270
+    L 555 273 L 560 275
+    L 600 275 Q 610 275 620 268
+    L 655 268 Q 658 268 660 60 L 660 280
+  " />
+  <!-- Simpler: just draw site Lorentzians at FSR multiples -->
+  <!-- Since path syntax above is messy, just use individual peaks: -->
+
+  <!-- Cleaner: -->
+  <g>
+    <!-- Site peaks (orange-red): at omega = -FSR, 0, +FSR -->
+    <!-- omega = -FSR (x=180) -->
+    <path class="site-curve" d="M 60 275 Q 130 275 175 270 Q 180 200 180 60 Q 180 200 185 270 Q 220 275 280 275" />
+    <!-- omega = 0 (x=420) -->
+    <path class="site-curve" d="M 280 275 Q 320 275 415 270 Q 420 200 420 60 Q 420 200 425 270 Q 520 275 555 275" />
+    <!-- omega = +FSR (x=660) -->
+    <path class="site-curve" d="M 555 275 Q 610 275 655 270 Q 660 200 660 60 Q 660 200 665 270" />
+  </g>
+
+  <g>
+    <!-- Link peaks (teal): at omega = -FSR/2, +FSR/2 (anti-resonant with site) -->
+    <!-- omega = -FSR/2 (x=300) -->
+    <path class="link-curve" d="M 220 275 Q 270 275 295 250 Q 300 175 300 105 Q 300 175 305 250 Q 335 275 380 275" />
+    <!-- omega = +FSR/2 (x=540) -->
+    <path class="link-curve" d="M 460 275 Q 510 275 535 250 Q 540 175 540 105 Q 540 175 545 250 Q 575 275 620 275" />
+  </g>
+
+  <!-- Vertical guide at site resonance (x=420) showing link is dim there -->
+  <line class="axis" x1="420" y1="60" x2="420" y2="280" stroke-dasharray="3 3" stroke-width="1" />
+
+  <!-- Legend -->
+  <rect x="450" y="42" width="14" height="10" class="legend-site" />
+  <text class="label" x="470" y="51">site rings (length L_site)</text>
+  <rect x="450" y="62" width="14" height="10" class="legend-link" />
+  <text class="label" x="470" y="71">link rings (length L_site + η)</text>
+
+  <!-- Annotation -->
+  <text class="label-small" x="420" y="345" text-anchor="middle">When site rings are on resonance (ω=0), link rings are anti-resonant (β₀η = π)</text>
+</svg>

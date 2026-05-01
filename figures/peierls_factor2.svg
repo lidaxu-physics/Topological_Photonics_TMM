@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 360" width="700" height="360">
+  <style>
+    .ring { fill: none; stroke: #2a4d6e; stroke-width: 2.5; }
+    .arc-up { fill: none; stroke: #c54f3f; stroke-width: 4; }
+    .arc-down { fill: none; stroke: #2a6e6a; stroke-width: 4; }
+    .arrow { fill: #1c1814; }
+    .arrow-r { fill: #c54f3f; }
+    .arrow-g { fill: #2a6e6a; }
+    .label { font: 13px sans-serif; fill: #1c1814; }
+    .label-i { font: italic 14px serif; fill: #1c1814; }
+    .label-r { font: 13px sans-serif; fill: #c54f3f; font-weight: bold; }
+    .label-g { font: 13px sans-serif; fill: #2a6e6a; font-weight: bold; }
+    .label-title { font: bold 14px sans-serif; fill: #1c1814; }
+    .dc-line { stroke: #999; stroke-width: 1; stroke-dasharray: 2 2; fill: none; }
+    .label-small { font: 11px sans-serif; fill: #555; }
+  </style>
+
+  <text class="label-title" x="350" y="22" text-anchor="middle">Why the Peierls phase factor of 2: each photon traverses ONE arc</text>
+
+  <!-- Schematic: link ring with two DCs (left and right), upper arc and lower arc colored differently -->
+  <!-- Big link ring -->
+  <ellipse class="ring" cx="350" cy="180" rx="180" ry="80" />
+
+  <!-- DCs at the two ends -->
+  <circle cx="170" cy="180" r="6" fill="#1c1814" />
+  <circle cx="530" cy="180" r="6" fill="#1c1814" />
+  <text class="label" x="170" y="200" text-anchor="middle">DC (site A)</text>
+  <text class="label" x="530" y="200" text-anchor="middle">DC (site B)</text>
+
+  <!-- Upper arc (red) with +theta/2 -->
+  <path class="arc-up" d="M 170 180 Q 350 100 530 180" />
+  <text class="label-r" x="350" y="105" text-anchor="middle">upper arc: phase +θ/2</text>
+
+  <!-- Lower arc (green) with -theta/2 -->
+  <path class="arc-down" d="M 170 180 Q 350 260 530 180" />
+  <text class="label-g" x="350" y="280" text-anchor="middle">lower arc: phase −θ/2</text>
+
+  <!-- Forward photon arrow on upper arc -->
+  <polygon class="arrow-r" points="350,118 365,124 350,132" />
+  <text class="label-r" x="370" y="120">forward (A→B)</text>
+
+  <!-- Backward photon arrow on lower arc -->
+  <polygon class="arrow-g" points="350,242 335,236 350,228" />
+  <text class="label-g" x="335" y="244" text-anchor="end">backward (B→A)</text>
+
+  <!-- Net effect annotation -->
+  <text class="label" x="350" y="320" text-anchor="middle">A→B picks up +θ/2,  B→A picks up −θ/2.  Directional asymmetry = θ.</text>
+  <text class="label-i" x="350" y="345" text-anchor="middle">A photon going around a plaquette traverses ONE arc per link, contributing θ/2 to the loop integral.</text>
+</svg>
