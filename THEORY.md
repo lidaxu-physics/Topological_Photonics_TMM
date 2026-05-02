@@ -1,361 +1,734 @@
-# The Hafezi-Lattice TMM Simulation: Theory and Implementation Guide
+# TMM Explorer — Theory and Implementation
 
-This document explains the physics, the algorithm, and the parameter choices behind `lattice_NxN_TMM.py` — a $z$-discretized **transfer-matrix-method** (TMM) simulation of the Hafezi-style coupled-resonator lattice with synthetic magnetic flux. The goal is twofold: (1) to be a self-contained learning resource you can read end-to-end, and (2) to be precise enough that someone could re-implement the code from the description alone.
+A complete derivation of the simulator from physical first principles. We start with
+dimensional Maxwell-equation propagation in real waveguides, introduce the
+normalization scheme that gives the dimensionless quantities used in the code, and
+show how the steady-state and time-domain solvers are constructed.
 
----
-
-## Contents
-
-1. [What the simulation models](#1-what-the-simulation-models)
-2. [Single ring as a TMM building block](#2-single-ring-as-a-tmm-building-block)
-3. [The directional coupler](#3-the-directional-coupler)
-4. [Anti-resonance: the trick that makes the lattice work](#4-anti-resonance-the-trick-that-makes-the-lattice-work)
-5. [Chirality and phase-matched DCs](#5-chirality-and-phase-matched-dcs)
-6. [Synthetic flux via Peierls phase](#6-synthetic-flux-via-peierls-phase)
-7. [Assembling the lattice and the linear system](#7-assembling-the-lattice-and-the-linear-system)
-8. [Numerical strategy: sparse solver](#8-numerical-strategy-sparse-solver)
-9. [Parameter glossary](#9-parameter-glossary)
-10. [How to read the output](#10-how-to-read-the-output)
-11. [References](#11-references)
+This document assumes familiarity with microring resonators and the basic IQH-lattice
+lattice idea. It does not assume familiarity with our simulator.
 
 ---
 
-## 1. What the simulation models
+## Table of contents
 
-A 2D lattice of identical "site" microring resonators is connected by smaller "link" rings. Each pair of nearest-neighbor site rings is coupled to one link ring via two evanescent directional couplers (DCs), so the link ring sits between sites and acts as a mediator. This is the platform of [Hafezi *et al.*, *Nature Photonics* **7**, 1001 (2013)](https://doi.org/10.1038/nphoton.2013.274).
-
-When the link rings are tuned to be **anti-resonant** with the site rings (length offset such that $\beta_0 \eta = \pi$), the link rings carry no resonant build-up but do mediate hopping between sites. The site rings then realize an effective tight-binding model, which can be made into a **synthetic magnetic flux** $\Phi_0$ per plaquette by giving link rings a directional asymmetry (a Peierls phase). At $\Phi_0 = \pi/2$ the system realizes the Hofstadter model with a topologically nontrivial gap and chiral edge states — directly analogous to the integer quantum Hall effect, but for photons.
-
-The TMM here computes the steady-state field amplitude inside *every waveguide segment of every ring* at a given input frequency $\omega$, by solving one linear system per frequency. From those fields we get drop and through transmission spectra and intensity distributions across the lattice — enough to visualize edge modes directly.
-
----
-
-## 2. Single ring as a TMM building block
-
-Forget the lattice for a moment and think about one ring. The ring is a closed waveguide of length $L$. A photon at angular frequency $\omega$ propagating along the waveguide picks up a phase per unit length given by the propagation constant
-
-$$
-\beta(\omega) = \beta_0 + \frac{\omega - \omega_0}{v_g},
-$$
-
-where $\beta_0 = \beta(\omega_0)$ is the propagation constant at the carrier frequency $\omega_0$, $v_g$ is the group velocity, and we'll re-define "$\omega$" as the *detuning* from $\omega_0$ throughout the rest of the document. Going around the ring once gives a round-trip phase $\beta L = \beta_0 L + \omega L / v_g$. Resonance occurs when $\beta_0 L = 2\pi N$ for integer $N$ — the static integer-multiple-of-$2\pi$ condition we'll absorb into the definition of "$\omega = 0$".
-
-In dimensionless units ($v_g = 1$, $L_{\rm site} = 1$), the round-trip phase from detuning alone is just $\omega L$, and $\omega = 0$ is the resonance.
-
-### Z-discretization
-
-We sample the field at $N_z$ equally-spaced points around the ring. Call the field amplitude at grid point $k$ (where $k = 0, 1, \dots, N_z - 1$) by $E_k$. Between adjacent grid points the field just propagates a short distance $\Delta z = L/N_z$, so
-
-$$
-E_k = e^{i\omega \Delta z}\, e^{-\alpha \Delta z / 2}\, E_{k-1} \;\equiv\; p\, E_{k-1}.
-$$
-
-Here $\alpha$ is a phenomenological linear loss (intensity loss per unit length), and the per-step propagation factor is
-
-$$
-p = e^{i\omega \Delta z - \alpha \Delta z / 2}.
-$$
-
-After $N_z$ steps you've gone all the way around: $E_{N_z} = p^{N_z} E_0 = e^{i\omega L - \alpha L/2} E_0$. Setting $E_{N_z} = E_0$ enforces the ring's standing-wave (resonance) condition. With finite loss, the round trip cannot be perfectly closed without an external drive — the ring needs to be excited from outside.
-
-<p align="center">
-  <img src="figures/z_discretized_ring.png" alt="z-discretized ring" width="500"/>
-</p>
-
-The ring becomes an external-driven resonator the moment you punch a hole in the loop where another waveguide can couple in. That's the directional coupler.
+1. [Setting](#1-setting)
+2. [Physical propagation in a single waveguide](#2-physical-propagation-in-a-single-waveguide)
+3. [Choice of frame: the carrier wraps to identity](#3-choice-of-frame-the-carrier-wraps-to-identity)
+4. [Dimensionless variables](#4-dimensionless-variables)
+5. [Single ring — discretization](#5-single-ring--discretization)
+6. [Single ring — adding the bus](#6-single-ring--adding-the-bus)
+7. [Single ring — steady state vs time evolution](#7-single-ring--steady-state-vs-time-evolution)
+8. [The IQH lattice — geometry and indexing](#8-the-iqh-lattice--geometry-and-indexing)
+9. [Link rings and anti-resonance](#9-link-rings-and-anti-resonance)
+10. [The Peierls phase and synthetic flux](#10-the-peierls-phase-and-synthetic-flux)
+11. [Assembling the global sparse system](#11-assembling-the-global-sparse-system)
+12. [Solving — sparse LU vs Ikeda iteration](#12-solving--sparse-lu-vs-ikeda-iteration)
+13. [Removed rings (defects)](#13-removed-rings-defects)
+14. [Mapping back to experimental units](#14-mapping-back-to-experimental-units)
+15. [What this simulator does NOT model](#15-what-this-simulator-does-not-model)
 
 ---
 
-## 3. The directional coupler
+## 1. Setting
 
-A directional coupler (DC) is a place where two parallel waveguides come close enough that their evanescent fields overlap. In TMM the effect of the entire coupling region is a 2×2 unitary scattering matrix relating the input amplitudes $(a_1, a_2)$ to the output amplitudes $(b_1, b_2)$:
+The IQH lattice is a 2D array of "site" microring resonators, every nearest-neighbor
+pair coupled through a "link" microring. The link rings are designed to be **anti-resonant**
+with the site rings (their round-trip phase differs by π from the carrier-induced
+2πN), so they don't host their own modes in the band of interest, but they mediate
+nearest-neighbor hopping between site rings — and crucially, they do so with a
+**directional phase** that realizes the Peierls substitution → synthetic magnetic
+field on the lattice → integer quantum Hall physics for photons.
 
-$$
-\begin{pmatrix} b_1 \\ b_2 \end{pmatrix}
-=
-\begin{pmatrix} t & i\kappa \\ i\kappa & t \end{pmatrix}
-\begin{pmatrix} a_1 \\ a_2 \end{pmatrix},
-\qquad t^2 + \kappa^2 = 1.
-$$
+The key quantities in a real device:
 
-The "self-coupling" $t$ is the amplitude that stays on the same waveguide, and the "cross-coupling" $i\kappa$ is the amplitude that hops to the other. The factor of $i$ is what makes the DC unitary (and is required for energy conservation in the lossless limit). In our code, $\kappa$ is a real number between 0 and 1 — small for weak coupling, large for strong coupling.
+| Symbol | Meaning | Typical value |
+|---|---|---|
+| $L_{\rm site}$ | Site ring physical length | $\sim 100\,\mu m$ |
+| $\eta = L_{\rm link} - L_{\rm site}$ | Link extra length | $\sim \lambda_0 / (2 n_{\rm eff}) \sim 250\,\mathrm{nm}$ |
+| $n_{\rm eff}$ | Effective refractive index | $\sim 2$ |
+| $v_g$ | Group velocity | $c/n_g \sim 10^8$ m/s |
+| $\beta(\omega)$ | Propagation constant | $\sim 10^7$ rad/m |
+| $\Gamma_{\rm FSR}$ | Free spectral range $= v_g/L_{\rm site}$ | hundreds of GHz |
+| $\kappa_{\rm ex,exp}$ | Bus-cavity linewidth | tens of GHz |
+| $J$ | Tight-binding hopping rate | tens of GHz |
+| $\alpha$ | Intrinsic field-loss coefficient | small |
 
-<p align="center">
-  <img src="figures/directional_coupler.png" alt="DC schematic" width="600"/>
-</p>
-
-In the lattice, every ring has multiple DCs around its perimeter:
-- Site rings have one DC for the input/drop bus (if it's a bus site) and one DC for each of up to four neighboring link rings.
-- Link rings have two DCs (one to each of the two neighboring site rings).
-
-We place each DC at one specific grid point on the ring. So in the discretization, a DC is just an *exception* to the simple "$E_k = p \cdot E_{k-1}$" rule at one $k$ value — at that $k$, instead of pure propagation we apply the DC scattering matrix mixing this ring's field with a partner ring's field.
-
-The code uses these slot positions on a 16-point site ring:
-
-```
-SLOT_BUS    = 0    # bus DC (only used for IN and OUT site rings)
-SLOT_RIGHT  = 4    # DC to right-neighbor h-link (if present)
-SLOT_TOP    = 8    # DC to top-neighbor v-link
-SLOT_BOTTOM = 10   # DC to bottom-neighbor v-link
-SLOT_LEFT   = 12   # DC to left-neighbor h-link
-```
-
-Note the slots aren't perfectly evenly spaced — TOP at 8 and BOTTOM at 10 are close together. That's fine because no site ring ever has *both* TOP and BOTTOM neighbors active simultaneously and use both: a corner ring has only one of these, so the asymmetry doesn't cause physical conflicts. It just affects how the rendered ring is rotated for visualization.
-
-Link rings have just two DCs:
-- "near" DC at grid 0, couples to the lower-coordinate site (left site for h-links, bottom site for v-links).
-- "far" DC at grid $N_z/2$, couples to the higher-coordinate site.
+The simulator works in dimensionless units that absorb the carrier frequency entirely.
+We derive these units carefully below.
 
 ---
 
-## 4. Anti-resonance: the trick that makes the lattice work
+## 2. Physical propagation in a single waveguide
 
-Here is the central physical idea of the Hafezi platform.
+A single-mode optical waveguide carries an envelope $A(z, t)$ around a carrier
+frequency $\omega_0$. The total electric field is
 
-If the site rings and link rings were both on resonance at $\omega = 0$, you'd have a degenerate forest of resonances and the system would be a mess. To make the link rings act as *passive couplers* — fast paths between sites without their own mode structure interfering — you tune them to be **anti-resonant** with the site rings.
+$$\mathcal{E}(z, t) = \mathrm{Re}\{A(z, t) \, e^{i(\beta_0 z - \omega_0 t)}\}$$
 
-Concretely: make the link rings physically *longer* than the site rings by exactly $\eta = \lambda_0 / (2 n_{\rm eff})$ — half a wavelength at the operating wavelength $\lambda_0$. Then the static propagation phase $\beta_0 \eta = \pi$ makes the link's round-trip phase
+In the slowly-varying-envelope approximation, $A$ obeys (lossy free propagation):
 
-$$
-\beta_0 L_{\rm link} = \beta_0 (L_{\rm site} + \eta) = 2\pi N + \pi,
-$$
+$$\frac{\partial A}{\partial z} + \frac{1}{v_g} \frac{\partial A}{\partial t} = -\frac{\alpha}{2} A$$
 
-which is an *odd* multiple of $\pi$ — anti-resonant — when the site round-trip is $2\pi N$ (resonant). Because $\beta_0$ is set by the operating wavelength, this is a geometric constraint on the fabricated lengths, not a frequency-dependent thing.
+where $v_g = (\partial \beta / \partial \omega)^{-1}|_{\omega_0}$ is the group velocity at
+the carrier and $\alpha$ is the intensity loss per unit length.
 
-<p align="center">
-  <img src="figures/anti_resonance.png" alt="anti-resonance illustration" width="700"/>
-</p>
+For monochromatic (CW) excitation at detuning $\omega$ from the carrier — i.e.
+$A(z, t) = E(z) e^{-i\omega t}$ — this becomes the ordinary differential equation:
 
-In the simulation, we treat $\omega$ as *detuning from the site resonance*. The site round-trip phase is $\omega L_{\rm site}$, with resonance at $\omega = 0$. The link ring's round-trip phase is
+$$\frac{dE}{dz} = \left( i\frac{\omega}{v_g} - \frac{\alpha}{2} \right) E$$
 
-$$
-\omega L_{\rm link} + \beta_0 \eta \;=\; \omega(L_{\rm site} + \eta) + \pi.
-$$
+with solution
 
-So in the per-step propagation factor for the link ring we add a constant extra phase $\pi / N_z$ (so the full round trip picks up $+\pi$):
+$$E(z) = E(0) \cdot e^{i \omega z / v_g - \alpha z / 2}$$
 
-$$
-p_{\rm link} = e^{i \omega \Delta z_{\rm link} + i\pi/N_z - \alpha \Delta z_{\rm link} / 2}.
-$$
+So in the envelope frame, propagation by distance $z$ multiplies the amplitude by
 
-This is the line of code
+$$\boxed{\quad p(z) = e^{i \omega z / v_g - \alpha z / 2} \quad}$$
 
-```python
-beta0_eta = np.pi if half_fsr_offset else 0.0
-extra_per_step_phase = beta0_eta / Nz_link
-p_link = np.exp(1j * omega * dz_link + 1j * extra_per_step_phase
-                 - alpha * dz_link / 2.0)
-```
+This is the **only physics in the simulator**, repeated everywhere. All the rest is
+geometry: where the propagation segments connect to one another, and which DCs sit
+between which segments.
 
-The boolean `half_fsr_offset` is the geometric anti-resonance condition. Without it, link rings would also resonate at $\omega = 0$ and you'd get nonsense.
+Note that the *full* amplitude including the carrier is
 
-**What you'll see in the spectrum:** two clusters of supermodes, separated by half a link-ring FSR (in the convention of $L_{\rm link} = 1.5 L_{\rm site}$, this means the link cluster is at $\omega/(2\pi)_{\rm site} \approx \pm 1/3$). The cluster near $\omega = 0$ is *site-dominated* — site rings ring up, link rings stay dim. The cluster near $\omega/(2\pi) = \pm 1/3$ is *link-dominated*, with the roles swapped.
+$$E_{\rm full}(z) = E(z) \, e^{i\beta_0 z} = E(0) \, e^{i \beta_0 z} \, e^{i\omega z/v_g - \alpha z/2}$$
 
-When sites are bright, the link rings carry small but nonzero field — they're transmitting (not building up) the photon between sites. The smaller the bus coupling $\kappa_{\rm ex}$, the sharper the resonances; the smaller the link coupling $\kappa_J$, the smaller the effective hopping.
+We will work in the envelope frame, so the $e^{i\beta_0 z}$ part disappears
+into the definition of "$E$" and only the $e^{i\omega z/v_g}$ part remains. But we still
+have to account for $\beta_0 z$ when comparing two waveguides of different lengths
+(site vs link), because the *difference* in $\beta_0 \cdot \mathrm{length}$ between
+the two doesn't trivially cancel.
 
 ---
 
-## 5. Chirality and phase-matched DCs
+## 3. Choice of frame: the carrier wraps to identity
 
-Microrings support two whispering-gallery modes: clockwise (CW) and counter-clockwise (CCW). For a directional coupler between two rings to actually couple, the two waveguide fields must be **co-propagating** at the coupling point. If one ring is CCW at the DC and the other is CW at the DC, and the DC sits on the inside of one ring and the outside of the other, then locally both fields move in the same direction — phase matched, energy can flow from one to the other.
+The site ring has length $L_{\rm site}$. A photon's full round-trip phase is
 
-In the Hafezi convention, **site rings circulate CCW and link rings circulate CW** (or vice versa). This means at every site-link DC, the two fields are co-propagating. If both rings were CCW (or both CW), the DC would couple counter-propagating modes, and at a directional coupler this gives essentially zero coupling — phase mismatch.
+$$\phi_{\rm site}^{\rm RT}(\omega_{\rm abs}) = \beta(\omega_{\rm abs}) \, L_{\rm site}$$
 
-<p align="center">
-  <img src="figures/chirality.png" alt="chirality phase matching" width="700"/>
-</p>
+where $\omega_{\rm abs} = \omega_0 + \omega$ is the absolute angular frequency. Expanding:
 
-In the code, the direction "$z$ increasing" corresponds to the photon's direction of propagation. For site rings I set `chirality = +1` (visualized CCW). For link rings I set `chirality = -1` (visualized CW). Internally, both ring types just propagate $E_k = p \cdot E_{k-1}$ — the chirality flag only affects how grid indices are mapped to angular positions when the ring is *drawn* on the figure.
+$$\beta(\omega_{\rm abs}) = \beta_0 + \omega/v_g + O(\omega^2)$$
 
-### Bus chirality
+so
 
-The IN and OUT buses are straight waveguides, not rings. They don't have their own circulation, but they do have a propagation direction. For phase-matched coupling at the bus DC:
+$$\phi_{\rm site}^{\rm RT} = \beta_0 L_{\rm site} + \omega L_{\rm site} / v_g$$
 
-- **IN bus** sits below the IN site ring. The IN site ring is CCW, so at its bottom edge the field locally moves *rightward*. The IN bus must therefore carry light *rightward* through the coupling section: input on the left tail, through on the right tail.
-- **OUT bus** sits above the OUT site ring. At the top edge of a CCW ring, the field moves *leftward*. So the OUT bus carries light *leftward*: drop on the left tail, add (unused) on the right tail.
+The **carrier is chosen** so that the device sits on a site resonance, i.e.,
 
-This is what the visualization shows.
+$$\boxed{\quad \beta_0 L_{\rm site} = 2\pi N \quad \text{for some integer } N \quad}$$
+
+This is a **physical fact about the device** — the laser wavelength is matched to the
+ring's design. With this choice, the static carrier phase wraps cleanly to identity
+and disappears from the round-trip:
+
+$$\phi_{\rm site}^{\rm RT}(\omega) = 2\pi N + \omega L_{\rm site} / v_g \;\equiv\; \omega L_{\rm site} / v_g \;\;(\text{mod } 2\pi)$$
+
+The detuning $\omega$ is now measured *from the resonance*. Site resonances occur at
+$\omega L_{\rm site}/v_g = 2\pi M$ for integer $M$, i.e., $\omega/(2\pi) \cdot \Gamma_{\rm FSR}^{-1} = M$
+where $\Gamma_{\rm FSR} = v_g/L_{\rm site}$ is the free spectral range.
+
+The carrier wavelength has been **completely absorbed** into the choice of "$\omega = 0$".
+$\beta_0$ no longer appears in any equation. Only the detuning $\omega$ matters.
+
+### What about the link ring?
+
+The link has length $L_{\rm link} = L_{\rm site} + \eta$. Its full round-trip is
+
+$$\phi_{\rm link}^{\rm RT}(\omega) = \beta(\omega_{\rm abs}) \, L_{\rm link}
+= \beta_0 L_{\rm site} + \beta_0 \eta + \omega(L_{\rm site} + \eta)/v_g$$
+
+The first piece, $\beta_0 L_{\rm site}$, is $2\pi N$ — wraps to identity as before. The
+second piece, $\beta_0 \eta$, **does not wrap** because $\eta$ is engineered such that
+
+$$\boxed{\quad \beta_0 \eta = \pi \quad}$$
+
+This is the **anti-resonance condition**: the link is exactly half a wavelength longer
+than the site, so its carrier round-trip is 2πN + π — half a turn off from the site.
+This is what makes the link ring not host modes in the band of interest; it's
+rejecting signal from circulating in itself.
+
+The third piece, $\omega(L_{\rm site} + \eta)/v_g$, is the detuning-dependent phase.
+We separate this into the "site-like" part $\omega L_{\rm site}/v_g$ and the small
+correction $\omega \eta / v_g$.
+
+How small is the correction? In real units, $\eta \sim 250$ nm and $L_{\rm site} \sim 100\,\mu$m,
+so $\eta/L_{\rm site} \sim 2 \times 10^{-3}$. The detuning $\omega$ ranges over the FSR,
+so $|\omega L_{\rm site}/v_g| \lesssim 2\pi$. Therefore
+$|\omega \eta/v_g| \lesssim 2\pi \cdot 2 \times 10^{-3} \approx 0.01$ rad — an
+order-of-magnitude smaller than any other phase. **It is dropped throughout.**
+
+Equivalently: the link's *frequency-dependent* phase is treated as $\omega L_{\rm site}/v_g$
+(same as the site), and $\eta$ enters *only* through the static $\beta_0 \eta = \pi$.
+
+This is the source of an important earlier bug. The original code used
+$\Delta z_{\rm link} = L_{\rm link} / N_z$ in the propagation factor, which gave
+the link a different FSR from the site (period 2/3 in $\omega/(2\pi)$ instead of 1).
+This is unphysical — it confuses the *physical length* (which $\eta$ does change) with
+the *frequency-dependent phase* (which $\eta$ does not change at FSR scales). The fix
+is to use $\Delta z_{\rm link} = L_{\rm site}/N_z$ for propagation, and add the static
+$\beta_0\eta$ as a separate constant phase distributed over the link's grid points.
+
+### Summary of the link's per-step factor
+
+The link's round-trip phase, after the carrier wraps and we drop $O(\omega\eta)$, is
+
+$$\phi_{\rm link}^{\rm RT}(\omega) = \beta_0 \eta + \omega L_{\rm site} / v_g$$
+
+The static $\beta_0 \eta$ is distributed uniformly across the $N_z$ discretization steps:
+each step contributes $\beta_0 \eta / N_z$ to the phase. (Discretization choice — see §9.)
 
 ---
 
-## 6. Synthetic flux via Peierls phase
+## 4. Dimensionless variables
 
-To make this lattice topological, we want a *uniform magnetic flux* $\Phi_0$ through every plaquette of the lattice. In a continuous photonic system there's no actual magnetic field, so we need a synthetic mechanism: making the photon hopping between sites pick up a phase that's direction-dependent, exactly as the Peierls substitution would predict for a charged particle in a magnetic field.
+The simulator works entirely in dimensionless units. The transformations:
 
-In a microring lattice this is achieved by giving each link ring an asymmetric optical path length: the upper arc and lower arc of the link ring have slightly different lengths. A photon traversing the link from site A to site B (forward) takes one arc; the reverse direction takes the other arc. The two paths pick up slightly different phases, so $J_{AB}$ and $J_{BA}$ are not complex conjugates but $J_{AB} = J^* e^{i\theta}$ — a Peierls phase.
+| Dimensional | Dimensionless | Convention |
+|---|---|---|
+| $L_{\rm site}$ | $1$ | The site ring is the unit length |
+| $v_g$ | $1$ | Light travels one length unit per time unit |
+| $T_R = L_{\rm site}/v_g$ | $1$ | Site round-trip time is the unit time |
+| $\Gamma_{\rm FSR} = 1/T_R$ | $1$ | FSR is the unit frequency (in Hz) |
+| $\omega$ (rad/s) | $\omega$ (dimensionless) | Detuning from carrier, in units of $\Gamma_{\rm FSR}\cdot 2\pi$ |
+| $\alpha$ (1/m) | $\alpha$ (dimensionless) | Loss per length, with length in $L_{\rm site}$ units |
+| $\eta$ (m) | $\eta_{\rm dim}$ (small) | Length difference in $L_{\rm site}$ units (typically $\ll 1$) |
+| $\beta_0 \eta$ (rad) | $\pi$ | The actual physical knob for anti-resonance |
 
-In the simulation, I implement this by adding $+\theta/2$ to one specific propagation step on the link ring's "forward arc" (between grid 0 and grid 1) and $-\theta/2$ on the "backward arc" (between grid $N_z/2$ and grid $N_z/2 + 1$). The total round-trip phase of the link is unchanged, but the two halves carry different directional phases.
+In these units:
+
+- $L_{\rm site} = 1$, so propagation factor over the site ring is just $e^{i\omega - \alpha/2}$ per round-trip.
+- The FSR in $\omega/(2\pi)$ axis units is exactly **1** — site resonances at integer $\omega/(2\pi)$.
+- The link's static anti-resonance phase is $\beta_0 \eta_{\rm dim} = \pi$ regardless of how small $\eta_{\rm dim}$ is in length units. We expose this as the parameter `beta0_eta_over_pi` in the UI.
+- The discretization step is $\Delta z = 1/N_z = 1/16$, both as a length and (since $v_g=1$) as a time.
+
+### Conversion between simulator units and lab units
+
+If your device has FSR $= \Gamma_{\rm FSR}^{\rm exp}$ (in Hz) and bus linewidth
+$\kappa_{\rm ex}^{\rm exp}$ (FWHM in Hz), the dimensionless coupling parameter is
+
+$$\kappa_{\rm ex}^{\rm sim} = \sqrt{\kappa_{\rm ex}^{\rm exp} / \Gamma_{\rm FSR}^{\rm exp}}$$
+
+For example, $\kappa_{\rm ex}^{\rm exp} = 20$ GHz at $\Gamma_{\rm FSR}^{\rm exp} = 750$ GHz
+gives $\kappa_{\rm ex}^{\rm sim} = \sqrt{0.0267} \approx 0.163$.
+
+For the hopping $J$:
+
+$$\kappa_J^{\rm sim} = \sqrt{2\pi \cdot J^{\rm exp} / \Gamma_{\rm FSR}^{\rm exp}}$$
+
+The factor of $2\pi$ comes from the detailed IQH-lattice geometry and is derived
+in the original Hafezi 2011 paper (which proposed this realization of the IQH lattice for photons) — see "the factor of 2" discussion in older
+documentation. Briefly: a photon traversing a plaquette only sees one *arc* of each
+link ring (between two DCs), not the full link round-trip, so the effective hopping
+picks up an extra $2\pi$ in the relation between $\kappa_J^2$ and the band-structure $J$.
+
+For loss:
+
+$$\kappa_{\rm in}^{\rm exp} = \alpha^{\rm sim} \cdot \Gamma_{\rm FSR}^{\rm exp} / (2\pi)$$
+
+So $\alpha = 0.01$ at $\Gamma_{\rm FSR} = 750$ GHz gives $\kappa_{\rm in} \approx 1.2$ GHz
+intrinsic linewidth, corresponding to $Q_{\rm int} \sim 1.6 \times 10^5$ at telecom.
+
+---
+
+## 5. Single ring — discretization
+
+Take a single isolated ring (no bus, no neighbors). The field around the ring is a
+function of one coordinate $z \in [0, L_{\rm site})$ with periodic boundary $E(L_{\rm site}) = E(0)$.
+
+Discretize into $N_z = 16$ equally-spaced grid points $z_k = k \Delta z$ for $k = 0, \ldots, N_z-1$,
+where $\Delta z = L_{\rm site}/N_z = 1/16$. Let $E_k = E(z_k)$.
+
+**Propagation rule.** Light at grid $k$ at time $t + \Delta t$ originates from grid $k-1$
+at time $t$ (where $\Delta t = \Delta z / v_g = \Delta z$ in our units), having
+picked up the per-segment factor $p$ derived in §2:
+
+$$\boxed{\quad E_k(t + \Delta t) = p \cdot E_{k-1}(t) \quad}$$
+
+with
+
+$$p = e^{i \omega \Delta z - \alpha \Delta z / 2}$$
+
+and the index $k-1$ taken modulo $N_z$ (so $k=0$'s predecessor is $k=N_z-1$, closing
+the ring). This is the discrete-time analog of $\partial_t E + v_g \partial_z E = (i\omega - \alpha/2) v_g E$.
+
+In matrix form, define the state vector $\vec{E}(t) = (E_0(t), E_1(t), \ldots, E_{15}(t))^T$.
+Then
+
+$$\vec{E}(t + \Delta t) = R \vec{E}(t)$$
+
+where $R$ is a $16 \times 16$ cyclic shift matrix with $p$ on the subdiagonal
+(and one $p$ in the upper-right corner for the wraparound):
+
+$$R_{kj} = p \cdot \delta_{j, (k-1) \bmod N_z}$$
+
+### Steady-state condition
+
+For monochromatic excitation, the time-dependence is $e^{-i\omega t}$ — but in our
+**envelope frame**, the steady-state envelope is *time-independent*. So the condition
+is $\vec{E}(t + \Delta t) = \vec{E}(t)$, i.e., $\vec{E}$ is an eigenvector of $R$ with
+eigenvalue 1:
+
+$$R \vec{E} = \vec{E}$$
+
+Equivalently, $E_k = p \cdot E_{k-1}$ for all $k$. Iterating around the ring:
+
+$$E_0 = p \cdot E_{N_z-1} = p \cdot p \cdot E_{N_z-2} = \cdots = p^{N_z} \cdot E_0$$
+
+So a non-trivial solution exists iff $p^{N_z} = 1$:
+
+$$e^{i\omega L_{\rm site} - \alpha L_{\rm site}/2} \cdot 1^{N_z-1} \cdot p^{N_z} = e^{i\omega - \alpha/2}$$
+
+Wait — let me redo this. $p^{N_z} = e^{i\omega \cdot N_z \Delta z - \alpha \cdot N_z \Delta z / 2}
+= e^{i\omega L_{\rm site} - \alpha L_{\rm site}/2} = e^{i\omega - \alpha/2}$.
+
+So in the lossless limit ($\alpha \to 0$), the resonance condition $p^{N_z} = 1$
+becomes $e^{i\omega} = 1$, i.e., $\omega = 2\pi M$ for integer $M$. **One FSR per
+$\Delta\omega = 2\pi$**, which in $\omega/(2\pi)$ axis units is $\Delta = 1$.
+
+---
+
+## 6. Single ring — adding the bus
+
+A directional coupler at slot $k = 0$ couples the ring to a bus waveguide. The DC is
+a 2×2 unitary scattering matrix:
+
+$$\begin{pmatrix} a_{\rm thru} \\ E_0 \end{pmatrix} =
+\begin{pmatrix} t_{\rm ex} & i\kappa_{\rm ex} \\ i\kappa_{\rm ex} & t_{\rm ex} \end{pmatrix}
+\begin{pmatrix} a_{\rm in} \\ E_0^{\rm in} \end{pmatrix}$$
+
+with $t_{\rm ex}^2 + \kappa_{\rm ex}^2 = 1$ (lossless DC), $\kappa_{\rm ex} \in [0, 1]$,
+and the $i$ enforcing time-reversal symmetry. Here:
+
+- $a_{\rm in}$ is the bus input amplitude (we set this to **1** — unit drive).
+- $a_{\rm thru}$ is the bus output amplitude (the through port).
+- $E_0^{\rm in}$ is the cavity field arriving at slot 0 from the previous grid point.
+  This is $E_0^{\rm in} = p \cdot E_{N_z-1}$ (the field at $k = N_z-1$ propagated by $\Delta z$).
+- $E_0$ is the cavity field *after* the DC — the new amplitude at slot 0.
+
+The DC gives:
+
+$$E_0 = t_{\rm ex} \cdot p \cdot E_{N_z-1} + i\kappa_{\rm ex} \cdot a_{\rm in}$$
+
+This **replaces** the free-propagation rule for $k = 0$ only:
+
+$$\boxed{
+\begin{aligned}
+E_0(t + \Delta t) &= t_{\rm ex} \cdot p \cdot E_{N_z-1}(t) \;+\; i\kappa_{\rm ex} \\
+E_k(t + \Delta t) &= p \cdot E_{k-1}(t), \quad k = 1, \ldots, N_z - 1
+\end{aligned}
+}$$
+
+In matrix form: $R$ keeps its sparsity pattern but row 0 has $t_{\rm ex} \cdot p$
+in column $N_z-1$ instead of $p$. The source vector $\vec{s}$ has $i\kappa_{\rm ex}$
+at row 0 and zero elsewhere:
+
+$$\vec{E}(t + \Delta t) = R \vec{E}(t) + \vec{s}$$
+
+### The thru-port amplitude
+
+From the DC matrix:
+
+$$a_{\rm thru} = t_{\rm ex} + i\kappa_{\rm ex} \cdot p \cdot E_{N_z-1}$$
+
+This is the bus output: directly-transmitted bus amplitude *plus* the cross-coupled
+cavity amplitude. They interfere — that interference creates the resonance dips in
+transmission. At critical coupling on resonance they cancel exactly.
+
+---
+
+## 7. Single ring — steady state vs time evolution
+
+There are two ways to find the field given the propagation rule.
+
+### (a) Steady-state solver
+
+Set $\vec{E}(t + \Delta t) = \vec{E}(t) \equiv \vec{E}_\infty$ (the field doesn't
+change in the envelope frame at steady state):
+
+$$\vec{E}_\infty = R \vec{E}_\infty + \vec{s}$$
+
+Rearranged: $(I - R) \vec{E}_\infty = \vec{s}$. **One sparse linear solve** gives
+the answer at any frequency $\omega$. This is `solve_one(omega, ...)` in the code.
+
+For the single ring on resonance ($\omega = 0$, so $p = e^{-\alpha/(2 N_z)}$, real),
+all $E_k$ are equal in steady state by translation symmetry:
+
+$$E_\infty = t_{\rm ex} \cdot p^{N_z} \cdot E_\infty + i\kappa_{\rm ex}$$
+$$E_\infty = \frac{i\kappa_{\rm ex}}{1 - t_{\rm ex} \cdot e^{-\alpha/2}}$$
+
+For $\kappa_{\rm ex} = 0.163$ and $\alpha = 0.01$ (your defaults), this gives
+$|E_\infty|^2 \approx 5.6$ — i.e., the intracavity intensity is ~5.6× the input intensity.
+This is the well-known cavity buildup factor.
+
+### (b) Time-domain iteration
+
+Start from $\vec{E}(0) = \vec{0}$ (device dark before drive). Apply the map
+$\vec{E}^{(n+1)} = R \vec{E}^{(n)} + \vec{s}$ for $n = 0, 1, 2, \ldots$. Each step
+advances physical time by $\Delta t = T_R / N_z$.
+
+This is `time_evolve(omega, ...)` in the code. The trajectory $\{\vec{E}^{(n)}\}$
+shows the **transient buildup** of the field, and converges to $\vec{E}_\infty$
+asymptotically.
+
+### Convergence rate
+
+The iteration converges if and only if the **spectral radius** $\rho(R) < 1$. The
+eigenvalues of $R$ for the bus-coupled ring are related to the round-trip survival
+factor: $|\lambda_{\max}|^{N_z} \approx t_{\rm ex} \cdot e^{-\alpha/2}$, so
+$|\lambda_{\max}| \approx (t_{\rm ex} \cdot e^{-\alpha/2})^{1/N_z}$.
+
+For your defaults: $t_{\rm ex} \approx 0.987$, $e^{-\alpha/2} \approx 0.995$, so
+$|\lambda_{\max}|^{N_z} \approx 0.982$ per round-trip — a 1.8% decay per round-trip.
+Convergence to within $10^{-3}$ of steady state takes roughly $\log(10^{-3})/\log(0.982)
+\approx 380$ round-trips. To within $10^{-6}$, ~760 round-trips.
+
+This is **slow** — high-Q cavities need long iteration times to settle. The simulator
+doesn't enforce any auto-stop; the user picks `N_steps` and watches what happens.
+
+---
+
+## 8. The IQH lattice — geometry and indexing
+
+Now scale up. The lattice is $N_x \times N_y$ site rings on a square grid, with link
+rings on every nearest-neighbor bond (horizontal H-links between $(i_x, i_y)$ and
+$(i_x+1, i_y)$; vertical V-links between $(i_x, i_y)$ and $(i_x, i_y+1)$).
+
+### Site-ring DC slot convention
+
+Each site ring has $N_z = 16$ grid points. We reserve specific slots for DCs:
+
+| Slot index | Role |
+|---|---|
+| 0 | Bus (only at IN/OUT sites) |
+| 4 | Right-link H-DC |
+| 8 | Top-link V-DC |
+| 10 | Bottom-link V-DC |
+| 12 | Left-link H-DC |
+
+The remaining 11 slots are pure propagation (no DC). Why these specific slot indices?
+Slots 0/4/8/12 are at quarter-turn intervals around the ring (so they're at the four
+sides — "south", "east", "north", "west"). Slot 10 is between TOP (8) and the going-back
+to BUS (0), specifically between the TOP and BOTTOM physical positions of the ring.
+This is a bit awkward — TOP and BOTTOM are physically opposite sides of the ring,
+but we use adjacent slot numbers (8 and 10) because of how the visualization
+works — but it does not affect the physics. The simulation only cares about
+the *cumulative* phase between DCs, which is set by the segment lengths.
+
+A bulk site has 4 link DCs (right + top + bottom + left) and 11 free-propagation steps.
+An edge site has 3 link DCs; a corner site has 2. The IN site additionally has a bus DC
+at slot 0.
+
+### Link-ring DC slot convention
+
+Each link ring also has $N_z = 16$ grid points. The two DCs (one to each adjacent site) are at:
+
+| Slot index | Role |
+|---|---|
+| 0 | "Near" site DC |
+| 8 (= $N_z/2$) | "Far" site DC |
+
+So the link is split in two equal arcs of 8 grid points each between the DCs.
+
+For an H-link `H_ix_iy` connecting $(i_x, i_y)$ and $(i_x+1, i_y)$: the "near" end
+is at the right side of $(i_x, i_y)$ (slot 4 of that site), and the "far" end is at
+the left side of $(i_x+1, i_y)$ (slot 12 of that site). For V-links, "near" = TOP
+of the lower site (slot 8), "far" = BOTTOM of the upper site (slot 10).
+
+### State vector layout
+
+The total state size for an $N_x \times N_y$ lattice is
+
+$$\text{state\_size} = N_x N_y \cdot N_z + (N_x - 1) N_y \cdot N_z + N_x (N_y - 1) \cdot N_z$$
+
+For 4×4: $16 \cdot 16 + 12 \cdot 16 + 12 \cdot 16 = 640$ unknowns. The state vector is
+laid out as: all sites first (in row-major order), then all H-links, then all V-links,
+each contributing $N_z$ consecutive entries. Lookup functions `site_idx(ix, iy, k)`
+and `link_idx(name, k)` return the index into the state vector.
+
+---
+
+## 9. Link rings and anti-resonance
+
+In each link-ring grid step, the propagation factor is
+
+$$p_{\rm link} = e^{i\omega \Delta z + i\beta_0\eta/N_z - \alpha \Delta z / 2}$$
+
+The static $i\beta_0\eta/N_z$ phase is **distributed uniformly** across all $N_z$ steps
+of the link ring, so they sum to $\beta_0\eta = \pi$ over a full link round-trip.
+This is a discretization choice, not physics — the static phase is a property of the
+*whole* ring, and we could have lumped it onto one step. Uniform spreading ensures
+the field at any intra-link grid point matches what you'd get from a continuous
+$\beta(z) = \beta_0 + \omega/v_g$ with uniform $\beta_0$ around the ring.
+
+Note: $\Delta z$ here is $L_{\rm site}/N_z$ for both site and link rings — even though
+the link's *physical* length is $L_{\rm site} + \eta$, we use $L_{\rm site}/N_z$ in the
+$\omega$-dependent and loss terms because the additional $\eta$ contribution to those
+is negligible at FSR scales (see §3 discussion). The only thing $\eta$ does is contribute
+the static $\beta_0\eta = \pi$ to the round-trip — and *that* is captured by the
+$i\beta_0\eta/N_z$ piece.
+
+This was the source of an earlier bug — see version history.
+
+### Anti-resonance physics
+
+Why $\beta_0\eta = \pi$? On a site resonance ($\omega = 0$), the site round-trip is
+$2\pi N$ — identity. The link's round-trip is $2\pi N + \pi$ — minus identity. So the
+field circulating in the link picks up a sign flip per round-trip, which causes
+*destructive interference* with itself. The link doesn't accumulate field — it just
+serves as a passive coupling channel between adjacent sites.
+
+If we set $\beta_0\eta = 0$ (link resonant with site), both rings would host modes
+in the same band and the simple "site-on-tight-binding-lattice" picture breaks down.
+The simulator's `β₀η` spinbox lets you explore this regime continuously.
+
+---
+
+## 10. The Peierls phase and synthetic flux
+
+To realize integer quantum Hall physics, photons must accumulate a phase $\Phi_0$
+when going around any plaquette of the lattice. This is the **Peierls phase** of
+the synthetic magnetic field.
+
+The IQH-lattice mechanism: introduce a directional asymmetry on the H-links such that
+photons going "up" through the link pick up a different phase than photons going
+"down". Specifically, the link is implemented so that the upper arc and lower arc
+have different phases — equivalent to slightly off-axis link rings.
+
+In the code, this is implemented via the `extras_arr`: the link-ring propagation step
+between grid 0 and grid 1 picks up an extra $+\theta/2$ phase, and the step between
+grid $N_z/2$ and grid $N_z/2 + 1$ picks up an extra $-\theta/2$. Net round-trip
+phase change is zero (so link's anti-resonance is preserved), but the *directional*
+phase asymmetry is $\theta$.
+
+For an H-link in row $i_y$, we set $\theta = -2\Phi_0 \cdot i_y$ (Landau gauge).
+A photon hopping right through this link sees $-\Phi_0 \cdot i_y$ accumulated phase;
+hopping left sees $+\Phi_0 \cdot i_y$. Going around a unit plaquette CCW:
+
+- Hop right at row $i_y$: phase $-\Phi_0 i_y$
+- Hop up: 0 (V-links have no Peierls phase in Landau gauge)
+- Hop left at row $i_y + 1$: phase $+\Phi_0 (i_y + 1)$
+- Hop down: 0
+
+Total: $-\Phi_0 i_y + \Phi_0 (i_y + 1) = \Phi_0$. ✓ Uniform flux per plaquette.
 
 ### The factor of 2
 
-Here's a subtle point that took me a while to get right. The naive expectation: if I want plaquette flux $\Phi_0$, I just put $\theta = \Phi_0$ on one bond. But that's wrong by a factor of 2.
+There's a subtle factor-of-2 in the Peierls implementation. A photon traversing a
+plaquette only goes through *one arc* of each link ring (between the two DCs), not
+the full link round-trip. So the per-bond Peierls phase is *half* the link's
+directional asymmetry. To get plaquette flux $\Phi_0$, the asymmetry $\theta$ is
+set to $2\Phi_0$ — and the per-bond phase that appears in the band structure is
+$\theta/2 = \Phi_0$. (See "the factor of 2" discussion in older theory notes.)
 
-Why: a photon going around a plaquette traverses **one arc of each link ring** (the arc that connects from one site DC to the next site DC). It doesn't traverse the link's full round trip. So the phase contribution per link is $\theta/2$ (half the directional asymmetry), not $\theta$.
-
-<p align="center">
-  <img src="figures/peierls_factor2.png" alt="Peierls factor of 2" width="700"/>
-</p>
-
-To get plaquette flux $\Phi_0$, the directional asymmetry on the relevant link must be $\theta = 2\Phi_0$. I verified this by comparing the simulated supermode spectrum at $\Phi_0 = \pi/2$ to the analytical 4-site Hofstadter eigenvalues $\pm \sqrt{2 \pm \sqrt{2}}\,J$: with $\theta = -2\Phi_0$ the four predicted modes appear at the right positions to within 1%; with $\theta = -\Phi_0$ they're off by exactly a factor of 2 in the splitting.
-
-### The Landau gauge
-
-For the lattice to have *uniform* flux, the per-link asymmetry has to depend on position in a specific way (a "gauge choice"). The simplest is **Landau gauge**, where only horizontal links carry asymmetry, and that asymmetry depends linearly on the row index $i_y$:
-
-$$
-\theta_h(i_y) = -2 \Phi_0 \cdot i_y, \qquad \theta_v = 0.
-$$
-
-Going around any plaquette CCW (corners $(i_x, i_y) \to (i_x+1, i_y) \to (i_x+1, i_y+1) \to (i_x, i_y+1) \to (i_x, i_y)$), only the bottom and top h-links contribute, and the sum is
-
-$$
-\big[\theta_h(i_y) - \theta_h(i_y + 1)\big] / 2 \;=\; \big[(-2\Phi_0 i_y) - (-2\Phi_0(i_y+1))\big]/2 \;=\; \Phi_0.
-$$
-
-Uniform across the lattice.
-
-<p align="center">
-  <img src="figures/lattice_peierls.png" alt="lattice geometry" width="600"/>
-</p>
+This factor-of-2 is also what gives us $\kappa_J^{\rm sim} = \sqrt{2\pi J/\Gamma_{\rm FSR}}$
+in the conversion to experimental $J$ — see §4.
 
 ---
 
-## 7. Assembling the lattice and the linear system
+## 11. Assembling the global sparse system
 
-The full state vector $\vec E$ contains the field amplitude at every grid point of every ring. For a $4 \times 4$ lattice with $N_z = 16$ for both sites and links:
+The complete propagation map for the lattice is built equation-by-equation:
 
-- 16 site rings × 16 grid points = 256
-- 24 link rings (12 horizontal + 12 vertical) × 16 grid points = 384
-- **Total: 640**
+For every grid point $(ring, k)$, write down the equation $E_k = (\text{stuff})$.
+"Stuff" depends on whether the slot is a DC or a free segment.
 
-For each grid point, the simulation writes one linear equation. There are two cases.
+### Free propagation segment
 
-### Free propagation (most grid points)
+Most slots are not DCs. The equation is just:
 
-If grid point $k$ has no DC, the equation is just
+$$E_k = p \cdot E_{k-1}$$
 
-$$
-E_k - p\, E_{k-1} = 0,
-$$
+Contributes one entry to row `idx(ring, k)`, column `idx(ring, k-1)`, value $p$.
 
-i.e., the propagation factor relates this point to its predecessor.
+### Site bus_in DC
 
-### Directional coupler (a few grid points)
+At slot 0 of the IN site:
 
-If grid point $k$ does have a DC, it mixes this ring's field with a partner ring's field. Suppose this is the site-ring side of a site-link DC. Then the equation is
+$$E_0 = t_{\rm ex} \cdot p_{\rm site} \cdot E_{N_z-1} + i\kappa_{\rm ex} \cdot a_{\rm in}$$
 
-$$
-E^{\rm site}_k = t\, p_{\rm site}\, E^{\rm site}_{k-1} + i\kappa\, p_{\rm link}\, E^{\rm link}_{k_{\rm link, prev}},
-$$
+Contributes: one entry to (row=site_0, col=site_{N_z-1}) with value $t_{\rm ex} \cdot p_{\rm site}$,
+and a source term $i\kappa_{\rm ex}$ at row=site_0.
 
-where $E^{\rm link}_{k_{\rm link, prev}}$ is the field at the partner DC's grid point on the link ring (with the link's propagation factor and any Peierls extra phase included). The corresponding equation on the link side mirrors this. For the bus DC, the equation is
+### Site bus_drop DC
 
-$$
-E^{\rm site}_k = t\, p_{\rm site}\, E^{\rm site}_{k-1} + i\kappa_{\rm ex}\, s_{\rm in},
-$$
+Same as bus_in but with $a_{\rm in} = 0$ (drop port doesn't have an input):
 
-with $s_{\rm in}$ the bus input amplitude (set to 1 in our code; the through and drop outputs are computed from the converged $\vec E$).
+$$E = t_{\rm ex} \cdot p_{\rm site} \cdot E_{\rm prev}$$
 
-### Linear system
+Just the one entry, no source term.
 
-Stack all $n = N_z(N_{\rm site} + N_{\rm link})$ equations:
+### Site link DC
 
-$$
-[\,I - R(\omega)\,]\, \vec E \;=\; \vec s_{\rm drive},
-$$
+At a slot connected to a link ring (e.g., slot 4 = right H-link):
 
-where $I$ is the identity, $R(\omega)$ is the *round-trip operator* containing all the propagation and DC mixings (which depends on $\omega$ through the propagation factors), and $\vec s_{\rm drive}$ has $i\kappa_{\rm ex}$ at the bus-input row and zero elsewhere.
+$$E_{\rm site, k} = t_J \cdot p_{\rm site} \cdot E_{\rm site, k-1} + i\kappa_J \cdot p_{\rm link} \cdot e^{i\theta_{\rm extra}} \cdot E_{\rm link, k_{\rm link\_prev}}$$
 
-This is a sparse linear system: each row has at most 2 nonzero entries (one from $I$ on the diagonal, one from $-R$ on a sub-diagonal or off-block-diagonal entry).
+Two entries: a self-coupling from the previous site grid (with $t_J$ instead of $1$
+or $p$), and a cross-coupling from the partner link's grid just before its DC.
+The extra phase $\theta_{\rm extra}$ at the link's DC slot is the Peierls $\pm\theta/2$
+contribution.
 
-<p align="center">
-  <img src="figures/matrix_structure.png" alt="matrix sparsity pattern" width="700"/>
-</p>
+### Link DC
 
-Solve it once per frequency $\omega$. Done. The state vector $\vec E$ then gives:
-- The field intensity $|E_k|^2$ at every grid point of every ring (used for visualization).
-- The bus through and drop transmission via $s_{\rm thru} = t_{\rm ex} + i\kappa_{\rm ex} \cdot E^{\rm bus\_in\, side}$ and $s_{\rm drop} = i\kappa_{\rm ex} \cdot E^{\rm bus\_drop\, side}$.
+At link slot 0 ("near") or $N_z/2$ ("far"):
 
----
+$$E_{\rm link, k} = t_J \cdot p_{\rm link} \cdot e^{i\theta_{\rm extra}} \cdot E_{\rm link, k-1}
++ i\kappa_J \cdot p_{\rm site} \cdot E_{\rm site, k_{\rm site\_prev}}$$
 
-## 8. Numerical strategy: sparse solver
+Two entries: a self-coupling from the previous link grid, and a cross-coupling from
+the site partner's grid just before its DC.
 
-The matrix $M = I - R(\omega)$ is $n \times n$ where $n = 640$ for the 4×4 lattice, but it has only $\sim 2$ nonzeros per row. The sparsity is over 99.7%. So:
+### Putting it all together
 
-- **Dense `np.linalg.solve`**: $O(n^3) \approx 2.6 \times 10^8$ flops per frequency. ~25 ms.
-- **Sparse `scipy.sparse.linalg.splu().solve()`**: exploits the sparsity. ~0.8 ms per frequency.
+For each entry `(row, col, value)` we get a single nonzero element of $R$. The full
+matrix is constructed once at template-build time (sparsity pattern only depends on
+geometry and topology), then values are recomputed per frequency by multiplying the
+template's `coeffs` array by the per-step factors.
 
-That's a 30× speedup. For 8001 frequencies the difference is 3.5 minutes vs 7 seconds. The code in `lattice_NxN_TMM.py` ships with the sparse version (`solve_lattice_fast`, `scan_spectrum_fast`).
+The total number of nonzeros is roughly $N_z \cdot (\text{number of rings})$ for free
+propagation, plus $2 \cdot (\text{number of DCs})$ for the cross-couplings. For a
+4×4 lattice: ~640 + ~70 = ~710 nonzeros in a 640×640 matrix. Very sparse (~0.2% fill).
 
-The sparsity pattern only depends on `(Nx, Ny, Nz_site, Nz_link)`, not on $\omega$. So the (row, col) coordinates are precomputed once and cached; only the entry values change per frequency. Avoiding rebuilding the sparse matrix from a Python loop each call accounts for most of the speedup.
-
-For really large lattices ($N_x \times N_y \gtrsim 10$) where even sparse LU is slow, the next step would be parallelizing the frequency scan across CPU cores via `multiprocessing`, since each frequency is independent. JAX-on-GPU could vectorize the scan via `vmap`, but at current problem sizes the GPU overhead beats the speedup.
+The steady-state matrix $M = I - R$ has the same sparsity plus the diagonal. We solve
+$M \vec{E} = \vec{s}$ by `scipy.sparse.linalg.splu` — a sparse LU factorization that
+exploits the structure. Solve time: ~1ms for a 4×4 lattice.
 
 ---
 
-## 9. Parameter glossary
+## 12. Solving — sparse LU vs Ikeda iteration
 
-| Parameter | Symbol | Role |
+### Sparse LU (steady state)
+
+`solve_one(omega, ...)`:
+
+1. Build per-step factors $p_{\rm site}(\omega)$, $p_{\rm link}(\omega)$ from current $\omega$.
+2. Compute matrix entries: `vals = -coeffs * p` (mostly).
+3. Assemble $M = I - R$ as a CSC sparse matrix.
+4. Factor with `splu`, back-substitute on $\vec{s}$.
+5. Return $\vec{E}_\infty$, $s_{\rm thru}$, $s_{\rm drop}$.
+
+This is the workhorse for spectrum scans. Each frequency point is independent; loop
+over $\omega$ values.
+
+### Ikeda map (time evolution)
+
+`time_evolve(omega, ...)`:
+
+1. Build $R$ with the same structure as `solve_one` but **without** the identity
+   (the propagator itself, not $I - R$).
+2. Initialize $\vec{E}^{(0)} = \vec{0}$.
+3. Iterate $\vec{E}^{(n+1)} = R \vec{E}^{(n)} + \vec{s}$ for $n = 0, \ldots, N_{\rm steps}-1$.
+4. Record $\vec{E}^{(n)}$, $s_{\rm thru}^{(n)}$, $s_{\rm drop}^{(n)}$ at intervals.
+
+Each step is one sparse mat-vec (cheap, ~30 μs for 640×640). 1000 steps → ~30 ms total.
+
+### Why Ikeda iteration when sparse LU is faster?
+
+- **It tracks transient dynamics.** You see the field build up over time. Useful for
+  understanding photon lifetimes and ring-up dynamics.
+- **It generalizes to nonlinear or time-dependent systems.** Just rebuild $R$ each
+  step with whatever new physics you want (Kerr from $|E|^2$, EO modulation from
+  $\sin(\Omega t)$, etc.).
+- **It's a cross-check on the steady-state solver.** Long-time average of the
+  iteration must match `solve_one`'s output.
+
+---
+
+## 13. Removed rings (defects)
+
+The simulator allows the user to "remove" any site or link ring by clicking on it.
+Implementation: the corresponding ring's DC entries are zeroed out (i.e., $\kappa = 0$
+at every DC touching that ring), but the ring's grid points remain in the state vector
+to keep indexing stable.
+
+Effectively: a removed ring decouples from the rest of the lattice. The field inside
+it propagates with itself only (under the loss $\alpha$), so any seed decays to zero.
+The neighboring rings see the removed ring as if it weren't there — they propagate
+through the slot that *would* have been a DC as if it were a free segment.
+
+This is useful for studying:
+
+- **Topological protection**: remove a single bulk site; the chiral edge mode reroutes
+  around it without back-scattering. (Visible in the field plot at a given $\omega$.)
+- **Boundary engineering**: remove a chain of edge sites; see how the edge mode
+  responds, whether it can still circumnavigate the lattice via a longer path.
+- **Defect-induced bound states**: removing rings creates "antidots" — locations
+  where photons might localize. With multiple defects you can engineer a lattice
+  geometry not realizable through gauge alone.
+
+The IN/OUT sites are protected from removal — they carry the bus DCs, removing them
+would break I/O.
+
+---
+
+## 14. Mapping back to experimental units
+
+Everything in the simulator is in dimensionless units. To compare to a real device,
+multiply by the right physical scale:
+
+| Simulator quantity | Multiply by | Get |
 |---|---|---|
-| `Nx, Ny` | $N_x, N_y$ | Lattice dimensions in sites. The lattice has $N_x N_y$ site rings, $(N_x{-}1)N_y + N_x(N_y{-}1)$ link rings, $(N_x{-}1)(N_y{-}1)$ plaquettes. |
-| `Phi0` | $\Phi_0$ | Synthetic flux per plaquette (radians). $\Phi_0 = \pi/2$ gives the "nice" Hofstadter case with 4 sub-bands. |
-| `eta` | $\eta$ | Physical link-ring extra length beyond a site length. Set to 0.5 in our dimensionless units. The actual *anti-resonance* condition is set by `half_fsr_offset` (below). |
-| `half_fsr_offset` | — | If `True`, adds the static $\beta_0 \eta = \pi$ phase to link round-trips, making links anti-resonant with sites at $\omega = 0$. **Should always be `True` for Hafezi physics.** |
-| `kappa_ex` | $\kappa_{\rm ex}$ | Bus↔site DC field coupling. Sets resonance linewidth (loaded Q). Larger = broader peaks. |
-| `kappa_J` | $\kappa_J$ | Site↔link DC field coupling. Sets effective hopping rate $J$ between sites. Larger = larger Hofstadter bandwidth. |
-| `alpha` | $\alpha$ | Linear loss per unit length. $1\times10^{-4}$ is approximately lossless on the FSR scale. |
-| `Nz_site, Nz_link` | $N_z$ | Number of grid points per ring. 16 each is plenty for site clusters; increase if you want sharper resolution of fine link-ring standing waves. |
-| `bus_in, bus_drop` | — | Site coordinates of the input and drop buses. Default is $(0, 0)$ and $(0, N_y - 1)$ — left edge column. |
+| $\omega/(2\pi)$ | $\Gamma_{\rm FSR}^{\rm exp}$ | Detuning in Hz |
+| $\kappa_{\rm ex}^2$ | $\Gamma_{\rm FSR}^{\rm exp}$ | Bus linewidth in Hz |
+| $\kappa_J^2/(2\pi)$ | $\Gamma_{\rm FSR}^{\rm exp}$ | Hopping $J$ in Hz |
+| $\alpha/(2\pi)$ | $\Gamma_{\rm FSR}^{\rm exp}$ | Intrinsic linewidth in Hz |
+| $T_R = 1$ | $1/\Gamma_{\rm FSR}^{\rm exp}$ | Round-trip time in seconds |
+| $1/\alpha$ | $T_R$ | Photon lifetime (round-trips, ÷ then × $T_R$ for sec) |
 
-### Calibration: getting $J / \text{FSR}$
-
-In a real Hafezi experiment, $J / \text{FSR} \approx 1/40$ (e.g. $J \approx 25$ GHz with FSR $\approx 1$ THz). To match this in the simulation, you can empirically scan $\kappa_J$ and measure the resulting site-cluster supermode splitting. With $\kappa_J = 0.561$, $\eta = 0.5$, `half_fsr_offset=True`, the site-cluster spacing matches the analytical 4-site Hofstadter prediction at $\Phi_0 = \pi/2$ to within 1%, with $J / \text{FSR} \approx 1/40$.
-
-To work in a different regime, just change $\kappa_J$ — but watch out for the $\kappa_J^2$ factor: doubling $J$ requires $\kappa_J \to \kappa_J \sqrt{2}$, not $\kappa_J \to 2\kappa_J$.
+For a device with $\Gamma_{\rm FSR} = 750$ GHz and the simulator defaults:
+- $\kappa_{\rm ex} = 0.163$ → bus linewidth = 20 GHz (FWHM)
+- $\kappa_J = 0.409$ → $J = 20$ GHz
+- $\alpha = 0.01$ → intrinsic linewidth = 1.2 GHz, $Q_{\rm int} \approx 1.6 \times 10^5$
+- $T_R = 1.33$ ps
+- Photon lifetime $\sim 100 T_R = 133$ ps
 
 ---
 
-## 10. How to read the output
+## 15. What this simulator does NOT model
 
-The default demo runs the 4×4 lattice at $\Phi_0 = \pi/2$, scans the central FSR window $\omega/(2\pi) \in [-0.1, 0.1]$, finds spectrum peaks, and plots:
+- **Nonlinearity (Kerr, FWM).** $R$ is linear and frequency-flat. Adding Kerr:
+  rebuild $R$ each step with $|E_k|^2$-dependent extra phase. ~50 lines of code.
+- **EO modulation, Floquet driving.** $R$ is time-independent. For sideband generation:
+  switch to a frequency-comb basis where each grid point carries $(2P+1)$ amplitudes.
+- **Group-velocity dispersion.** Within one FSR, $v_g$ is treated as constant. For
+  multi-FSR effects (broadband combs): include $\beta_2$ in the per-step phase.
+- **Spontaneous emission, vacuum noise.** Purely classical CW input.
+- **Polarization.** Single-mode waveguide; one scalar amplitude per grid.
+- **Pulse shape.** Source $\vec{s}$ is constant — CW excitation. For pulsed input,
+  modulate $\vec{s}$ in time.
+- **Backward-propagating modes.** Each ring carries one chirality only (the simulator
+  picks chirality based on phase_offset in the visualization, but the actual physics
+  is a single complex amplitude per grid point — effectively a single-mode picture).
 
-- **Top**: the through (red) and drop (blue) transmission vs $\omega/(2\pi)$ in FSR units.
-- **Bottom**: a snapshot of $|E|^2$ at the chosen peak frequency, drawn as colored ring outlines on a dark background. The bus waveguides are drawn as horseshoes hugging the IN and OUT site rings.
-
-### What to look for
-
-1. **Peak count.** At $\Phi_0 = \pi/2$, the 4×4 lattice has 16 site supermodes (organized into 4 Hofstadter sub-bands of 4 modes each). All should be visible in the central site cluster.
-
-2. **Sub-band structure.** The 16 peaks cluster into 4 mini-clusters separated by mini-gaps. The biggest gap is at $\omega = 0$ — this is the topological gap that hosts the chiral edge mode.
-
-3. **Edge mode**. At a frequency in the topological gap (e.g., $\omega/(2\pi) \approx 0.025$, just inside the gap), the field distribution should show:
-   - Bright site rings along the **boundary** of the lattice (top, bottom, left, right edges).
-   - **Dark interior bulk** — the topological gap forbids bulk transport.
-   - The field flows chirally around the boundary from IN to OUT.
-
-4. **Anti-resonant link rings**. At a site-cluster frequency, link rings appear dim relative to site rings. They're carrying transmitted (not built-up) field. At a link-cluster frequency (around $\omega/(2\pi) \approx \pm 1/3$, outside the central window), the picture flips: link rings light up, sites go dim.
-
-5. **Standing-wave structure inside link rings**. Even at the site cluster, link rings have visibly non-uniform intensity around their perimeter — one side brighter than the other. This is the off-resonant standing wave from being driven at one DC and tapped at the other.
-
-### What the default 4×4 demo produces
-
-<p align="center">
-  <img src="figures/demo_output.png" alt="4x4 demo output" width="500"/>
-</p>
-
-Top: the spectrum, $T_{\rm drop}$ in blue and $T_{\rm thru}$ in red, with the selected peak (chosen as the closest peak to $\omega/(2\pi) = 0.025$) marked by the green vertical dashed line.
-
-Bottom: the $|E|^2$ profile rendered around every ring's perimeter. The IN bus and OUT bus are visible as horseshoe-shaped waveguides on the lower-left and upper-left of the lattice. At this peak frequency, the field is bright on the boundary site rings (perimeter of the 4×4 lattice) and dark in the bulk — a textbook chiral edge mode.
+All of these are extensions worth pursuing as subsequent layers. The linear classical
+CW simulator is the foundation that everything builds on.
 
 ---
 
-## 11. References
+## Appendix: Variable cheat sheet
 
-- M. Hafezi, S. Mittal, J. Fan, A. Migdall, J. M. Taylor, *Imaging topological edge states in silicon photonics*, **Nature Photonics 7, 1001 (2013)**. The original Hafezi platform.
-- M. Hafezi *et al.*, *Robust optical delay lines with topological protection*, **Nature Physics 7, 907 (2011)**. The proposal of the link-ring scheme.
-- S. Mittal, V. V. Orre, S. Hafezi, *Topologically robust transport of photons in a synthetic gauge field*, **Phys. Rev. Lett. 113, 087403 (2014)**.
-- D. Hofstadter, *Energy levels and wave functions of Bloch electrons in rational and irrational magnetic fields*, **Phys. Rev. B 14, 2239 (1976)**. The model the photonic lattice realizes.
-
----
-
-*This document accompanies `lattice_NxN_TMM.py`. The schematics in `figures/` are SVG and editable.*
+| Variable | Type | Meaning |
+|---|---|---|
+| $L_{\rm site}$ | dimensionless | Site ring length, set to 1 |
+| $\eta$ | dimensionless (small) | Link extra length, ~$10^{-3}$ |
+| $v_g$ | dimensionless | Group velocity, set to 1 |
+| $T_R$ | dimensionless | Site round-trip time, set to 1 |
+| $\Gamma_{\rm FSR}$ | dimensionless | FSR in Hz, set to 1 |
+| $\Delta z$ | $1/N_z$ | Per-step length (and time) |
+| $N_z$ | int (16) | Discretization count per ring |
+| $\omega$ | dimensionless | Detuning from carrier (in $\omega$-units, not Hz) |
+| $\omega/(2\pi)$ | dimensionless | Detuning in FSR units (axis label) |
+| $p$ | complex | Per-step propagation factor |
+| $\alpha$ | dimensionless | Field-loss per unit length |
+| $\beta_0\eta$ | dimensionless | Static link anti-resonance phase, ideally $\pi$ |
+| $\Phi_0$ | dimensionless | Synthetic flux per plaquette |
+| $\kappa_{\rm ex}, \kappa_J$ | dimensionless | DC amplitude couplings, in $[0, 1]$ |
+| $t_{\rm ex}, t_J$ | dimensionless | DC straight-through, $\sqrt{1-\kappa^2}$ |
+| $\vec{E}$ | complex array | State vector, length state_size |
+| $R$ | sparse complex matrix | Propagator, size state_size² |
+| $\vec{s}$ | complex array | Source vector, length state_size |
+| $\vec{E}_\infty$ | complex array | Steady-state field |
+| $a_{\rm thru}, a_{\rm drop}$ | complex | Bus output amplitudes |
