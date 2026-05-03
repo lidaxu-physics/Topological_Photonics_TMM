@@ -1,7 +1,7 @@
 """
 TMM.py
 ======
-Lida Xu's IQH-Lattice TMM Explorer — v1.2
+Lida Xu's IQH/AQH-Lattice TMM Explorer — v1.3
 Standalone desktop application matching the Linear.py UI conventions.
 
 Run:   python TMM.py
@@ -66,10 +66,45 @@ TEXT_COL  = '#c8d0e7'
 ACCENT    = '#00e5ff'
 
 # ── Discretization ───────────────────────────────────────────────────────────
+# Default grid points per ring (site and link). Can be overridden per-call
+# via the Nz_site / Nz_link kwargs to build_template, build_template_aqh,
+# etc. The UI exposes a spinbox that lets the user pick any multiple of 8
+# from 16 to 64.
 NZ_SITE = 16
 NZ_LINK = 16
 
-# Site-ring DC slot grid positions
+
+def _iqh_slots(Nz):
+    """Return the IQH per-site slot positions for a given ring discretization.
+
+    Slot positions scale proportionally with Nz/16 (the design value).
+    Returns dict with keys 'BUS', 'RIGHT', 'TOP', 'BOTTOM', 'LEFT'.
+
+    Requires Nz to be a multiple of 16 so that all slot positions are
+    integer-valued (e.g., BOTTOM = 5*Nz/8).
+    """
+    f = Nz // 16
+    return {
+        'BUS':    0,
+        'RIGHT':  4 * f,
+        'TOP':    8 * f,
+        'BOTTOM': 10 * f,
+        'LEFT':   12 * f,
+    }
+
+
+def _aqh_slots(Nz):
+    """Return the AQH per-ring cardinal slot positions for a given Nz.
+
+    AQH uses N/E/S/W at the 4 cardinal points; requires Nz divisible by 4.
+    """
+    q = Nz // 4
+    return {'N': 0, 'E': q, 'S': 2*q, 'W': 3*q}
+
+
+# Default (Nz=16) slot constants — for backward-compatible references.
+# Code that supports variable Nz should call _iqh_slots(Nz)/_aqh_slots(Nz)
+# instead of using these.
 SLOT_BUS    = 0
 SLOT_RIGHT  = 4
 SLOT_TOP    = 8
@@ -77,7 +112,7 @@ SLOT_BOTTOM = 10
 SLOT_LEFT   = 12
 
 
-def default_bus_positions(Nx, Ny):
+def default_bus_positions(Nx, Ny, Nz_site=None):
     """Pick sensible IN / OUT bus positions for any (Nx, Ny) >= (1, 1).
 
     Returns (bus_in, bus_drop) as 3-tuples (ix, iy, slot).
@@ -91,16 +126,154 @@ def default_bus_positions(Nx, Ny):
     - Horizontal chain (Ny = 1, Nx ≥ 2): IN at (0, 0) bottom,
                              OUT at (Nx-1, 0) bottom.
                              Both below the chain.
-    - Single ring (1×1):     IN at slot 0 (bottom), OUT at slot 8 (top).
+    - Single ring (1×1):     IN at slot 0 (bottom), OUT at slot Nz/2 (top).
                              Standard add-drop filter geometry.
+
+    Slot values scale with Nz_site (defaults to module-level NZ_SITE).
     """
+    if Nz_site is None:
+        Nz_site = NZ_SITE
+    slots = _iqh_slots(Nz_site)
+    s_bus = slots['BUS']; s_top = slots['TOP']
     if Ny == 1:
         # Horizontal chain (or single ring on 1x1)
         if Nx == 1:
-            return (0, 0, SLOT_BUS), (0, 0, SLOT_TOP)
-        return (0, 0, SLOT_BUS), (Nx - 1, 0, SLOT_BUS)
+            return (0, 0, s_bus), (0, 0, s_top)
+        return (0, 0, s_bus), (Nx - 1, 0, s_bus)
     # 2D lattice, Ny ≥ 2
-    return (0, 0, SLOT_BUS), (0, Ny - 1, SLOT_TOP)
+    return (0, 0, s_bus), (0, Ny - 1, s_top)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  AQH lattice geometry
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# Photonic AQH lattice: a brick-wall arrangement on a (2Nx-1)×(2Ny-1) grid.
+#
+#   Grid coordinate (c, r): c in [0, 2Nx-2], r in [0, 2Ny-2].
+#
+#   - Sites placed where c+r is even AND r is "narrow-row even" or
+#     "wide-row even" — explicitly:
+#         r even (rows 0, 2, ..., "narrow"):  sites at odd c       (Nx-1 sites)
+#         r odd  (rows 1, 3, ..., "wide"):    sites at even c        (Nx sites)
+#   - Link rings placed where r is odd AND c is odd:
+#         (Nx-1) per wide row, Ny-1 wide rows → (Nx-1)*(Ny-1) total links.
+#
+# Site count: Nx*(Ny-1) + Ny*(Nx-1).
+# Link count: (Nx-1)*(Ny-1).
+#
+# Connectivity:
+#   - Each link ring at (c, r) couples to its 4 nearest grid neighbors:
+#         (c, r-1) — site above (N)
+#         (c, r+1) — site below (S)
+#         (c-1, r) — site left  (W)
+#         (c+1, r) — site right (E)
+#   - Each narrow-row site has 2 link DCs (links above AND below).
+#   - Each wide-row site has 2 link DCs (links left AND right).
+#
+# Each ring has 4 DCs around its 16-grid perimeter:
+#   - Site rings:  2 link DCs + 1 bus DC + 1 unused slot.
+#   - Link rings:  4 site DCs.
+#
+# Slot conventions (16 grid points around each ring perimeter):
+#   Slot 0  = NORTH side (top of ring)
+#   Slot 4  = EAST  side (right of ring)
+#   Slot 8  = SOUTH side (bottom)
+#   Slot 12 = WEST  side (left)
+# DCs are placed at the slot whose direction matches the neighbor's
+# physical position, e.g. a site above→Slot 0 (N) on this ring AND
+# Slot 8 (S) on the neighbor. The DC arc joining the two rings is
+# tangent at both, so they share a phase reference at that DC.
+#
+# Default bus positions: lower-left and upper-left site rings, bus DC on
+# whichever side is "free" (i.e. has no link neighbor).
+# ═════════════════════════════════════════════════════════════════════════════
+
+# AQH site DC slots (4 cardinal directions; bus uses whichever is free)
+SLOT_AQH_N = 0
+SLOT_AQH_E = 4
+SLOT_AQH_S = 8
+SLOT_AQH_W = 12
+
+
+def aqh_site_count(Nx, Ny):
+    """Brick-wall site count: Nx*(Ny-1) + Ny*(Nx-1)."""
+    return Nx * (Ny - 1) + Ny * (Nx - 1)
+
+
+def aqh_link_count(Nx, Ny):
+    """Brick-wall link count: (Nx-1)*(Ny-1)."""
+    return max(0, (Nx - 1) * (Ny - 1))
+
+
+def aqh_grid_dims(Nx, Ny):
+    """Grid dimensions for the bricklike layout."""
+    return 2 * Nx - 1, 2 * Ny - 1   # n_cols, n_rows
+
+
+def aqh_site_positions(Nx, Ny):
+    """Return list of (c, r, plot_x, plot_y) for every site, in canonical
+    ordering (row-by-row, left-to-right within each row).
+
+    Plot coordinates are scaled to half the grid coords, so that adjacent
+    rings (site↔link) are at distance 0.5 — matching the IQH ring spacing
+    on a unit grid.
+    """
+    sites = []
+    for r in range(2 * Ny - 1):
+        if r % 2 == 0:                # narrow row: sites at odd c
+            for c in range(1, 2 * Nx - 1, 2):
+                sites.append((c, r, 0.5 * c, 0.5 * r))
+        else:                          # wide row: sites at even c
+            for c in range(0, 2 * Nx - 1, 2):
+                sites.append((c, r, 0.5 * c, 0.5 * r))
+    return sites
+
+
+def aqh_link_positions(Nx, Ny):
+    """Return list of (c, r, plot_x, plot_y) for every link ring."""
+    links = []
+    for r in range(1, 2 * Ny - 1, 2):
+        for c in range(1, 2 * Nx - 1, 2):
+            links.append((c, r, 0.5 * c, 0.5 * r))
+    return links
+
+
+def aqh_site_index_lookup(Nx, Ny):
+    """Build a {(c, r): 1-based site index} dict."""
+    sites = aqh_site_positions(Nx, Ny)
+    return {(c, r): i for i, (c, r, _, _) in enumerate(sites, start=1)}
+
+
+def aqh_link_index_lookup(Nx, Ny):
+    """Build a {(c, r): 1-based link index} dict."""
+    links = aqh_link_positions(Nx, Ny)
+    return {(c, r): j for j, (c, r, _, _) in enumerate(links, start=1)}
+
+
+def aqh_default_bus_positions(Nx, Ny):
+    """Bus IN at lower-left corner site, OUT at upper-left corner site.
+    Returns (in_idx, out_idx) as 1-based site indices.
+
+    Plot uses ax.invert_yaxis(), so smaller plot_y is visually higher.
+    Lower-left site is at grid (1, 2*Ny-2) — bottom row, leftmost narrow-row.
+    Upper-left site is at grid (1, 0) — top row, leftmost narrow-row.
+    Both are narrow-row sites with one vertical link neighbor.
+
+    The bus DC sits on the side opposite to the link neighbour, so the
+    bus exits the lattice toward its outer edge:
+        IN  (lower-left) → bus exits below the lattice
+        OUT (upper-left) → bus exits above the lattice
+    """
+    sites = aqh_site_positions(Nx, Ny)
+    if not sites:
+        return 1, 1
+    if Nx <= 1 or Ny <= 1:
+        return 1, len(sites)
+    site_lookup = aqh_site_index_lookup(Nx, Ny)
+    in_idx  = site_lookup[(1, 2 * Ny - 2)]      # bottom-row narrow-row site
+    out_idx = site_lookup[(1, 0)]                # top-row narrow-row site
+    return in_idx, out_idx
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -142,7 +315,8 @@ def make_lattice_indices(Nx, Ny, Nz_site=NZ_SITE, Nz_link=NZ_LINK):
 
 def build_template(Nx, Ny, Phi0, kappa_ex, kappa_J,
                     bus_in, bus_drop, Nz_site=NZ_SITE, Nz_link=NZ_LINK,
-                    removed_sites=None, removed_links=None):
+                    removed_sites=None, removed_links=None,
+                    dc_flip=False):
     """
     bus_in / bus_drop: each a tuple (ix, iy, slot) OR (ix, iy).
     If a 2-tuple is given, slot defaults to SLOT_BUS = 0 (bottom).
@@ -160,17 +334,40 @@ def build_template(Nx, Ny, Phi0, kappa_ex, kappa_J,
     Removed rings still occupy their grid points in the state vector (so
     indexing is stable), but they have no DCs to anything else, so their
     field decouples and decays to zero under nonzero α.
+
+    dc_flip: if True, flip the slot ordering convention everywhere — the
+        photon's "predecessor" slot becomes (k+1) instead of (k-1) at every
+        grid point. Physically: every ring's circulation reverses (CW ↔ CCW).
+        This is what changing the bus DC tangent direction does in
+        experiment — light injected from the OPPOSITE end of the bus
+        couples to the OPPOSITE pseudospin of the ring. Spectrum is
+        invariant by reciprocity, but transient buildup paths differ.
     """
     removed_sites = set(removed_sites) if removed_sites else set()
     removed_links = set(removed_links) if removed_links else set()
 
-    # Accept both (ix, iy) and (ix, iy, slot) tuples
+    # Accept both (ix, iy) and (ix, iy, slot) tuples. Slot constants
+    # depend on Nz_site (they scale with Nz_site/16). Validate that the
+    # ring discretization is a multiple of 16 so that all required slots
+    # land on integer grid positions.
+    if Nz_site % 16 != 0:
+        raise ValueError(
+            f"Nz_site must be a multiple of 16 (got {Nz_site}). The IQH "
+            f"slot allocation (BUS=0, RIGHT=Nz/4, TOP=Nz/2, BOTTOM=5Nz/8, "
+            f"LEFT=3Nz/4) requires this for all slots to be integer-valued.")
+    iqh_slots = _iqh_slots(Nz_site)
+    slot_bus    = iqh_slots['BUS']
+    slot_right  = iqh_slots['RIGHT']
+    slot_top    = iqh_slots['TOP']
+    slot_bottom = iqh_slots['BOTTOM']
+    slot_left   = iqh_slots['LEFT']
+
     def _normalize_bus(b, default_slot):
         if len(b) == 2:
             return (b[0], b[1], default_slot)
         return b
-    bus_in = _normalize_bus(bus_in, SLOT_BUS)        # default bottom slot
-    bus_drop = _normalize_bus(bus_drop, SLOT_BUS)    # default bottom slot too
+    bus_in = _normalize_bus(bus_in, slot_bus)        # default bottom slot
+    bus_drop = _normalize_bus(bus_drop, slot_bus)    # default bottom slot too
 
     # IN/OUT sites are never removed — they carry the bus DCs.
     bus_sites = {(bus_in[0], bus_in[1]), (bus_drop[0], bus_drop[1])}
@@ -198,43 +395,47 @@ def build_template(Nx, Ny, Phi0, kappa_ex, kappa_J,
     for iy in range(Ny):
         for ix in range(Nx):
             slots = {}
-            # Bus DCs: IN and drop. Each occupies its own slot.
-            # In single-ring or shared-site cases they can both land here
-            # but at different slot indices.
             if (ix, iy) == (bus_in[0], bus_in[1]):
                 slots[bus_in[2]] = ("bus_in", None)
             if (ix, iy) == (bus_drop[0], bus_drop[1]):
                 slots[bus_drop[2]] = ("bus_drop", None)
             if ix > 0:
-                slots[SLOT_LEFT] = ("link", f"H_{ix-1}_{iy}", "far")
+                slots[slot_left] = ("link", f"H_{ix-1}_{iy}", "far")
             if ix < Nx - 1:
-                slots[SLOT_RIGHT] = ("link", f"H_{ix}_{iy}", "near")
+                slots[slot_right] = ("link", f"H_{ix}_{iy}", "near")
             if iy > 0:
-                slots[SLOT_BOTTOM] = ("link", f"V_{ix}_{iy-1}", "far")
+                slots[slot_bottom] = ("link", f"V_{ix}_{iy-1}", "far")
             if iy < Ny - 1:
-                slots[SLOT_TOP] = ("link", f"V_{ix}_{iy}", "near")
+                slots[slot_top] = ("link", f"V_{ix}_{iy}", "near")
             site_neighbors[(ix, iy)] = slots
 
     link_sites = {}
     for name in h_link_names:
         _, ix_str, iy_str = name.split("_")
         ix, iy = int(ix_str), int(iy_str)
-        link_sites[name] = {"near": (ix, iy, SLOT_RIGHT),
-                             "far":  (ix + 1, iy, SLOT_LEFT)}
+        link_sites[name] = {"near": (ix, iy, slot_right),
+                             "far":  (ix + 1, iy, slot_left)}
     for name in v_link_names:
         _, ix_str, iy_str = name.split("_")
         ix, iy = int(ix_str), int(iy_str)
-        link_sites[name] = {"near": (ix, iy, SLOT_TOP),
-                             "far":  (ix, iy + 1, SLOT_BOTTOM)}
+        link_sites[name] = {"near": (ix, iy, slot_top),
+                             "far":  (ix, iy + 1, slot_bottom)}
 
     t_ex = np.sqrt(1.0 - kappa_ex ** 2)
     t_J = np.sqrt(1.0 - kappa_J ** 2)
+
+    # Direction of perimeter slot ordering: +1 = CCW (default), -1 = CW.
+    # When dc_flip is True, every "predecessor" slot is the OTHER neighbour
+    # in the perimeter — so light flows the opposite way around each ring.
+    # This is the per-ring chirality flip: experimentally realised by
+    # mirror-flipping the bus DC tangent direction (Input: left ↔ right).
+    dir_sign = -1 if dc_flip else +1
 
     entries = []; src_rows = []; src_vals = []
     for (ix, iy), slots in site_neighbors.items():
         site_removed = (ix, iy) in removed_sites
         for k in range(Nz_site):
-            k_prev = (k - 1) % Nz_site
+            k_prev = (k - dir_sign) % Nz_site
             row = site_idx(ix, iy, k)
             if k in slots and not site_removed:
                 action = slots[k]; kind = action[0]
@@ -252,9 +453,11 @@ def build_template(Nx, Ny, Phi0, kappa_ex, kappa_J,
                                          "p_site", -1.0))
                     else:
                         if end == "near":
-                            link_k_dc = 0; link_k_prev = Nz_link - 1
+                            link_k_dc = 0
+                            link_k_prev = (link_k_dc - dir_sign) % Nz_link
                         else:
-                            link_k_dc = half_link; link_k_prev = half_link - 1
+                            link_k_dc = half_link
+                            link_k_prev = (link_k_dc - dir_sign) % Nz_link
                         extra_phase_dc = extras[link_name][link_k_dc]
                         entries.append((row, site_idx(ix, iy, k_prev),
                                          "p_site", -t_J))
@@ -262,34 +465,27 @@ def build_template(Nx, Ny, Phi0, kappa_ex, kappa_J,
                                          "p_link_extra", -1j * kappa_J,
                                          extra_phase_dc))
             else:
-                # Free propagation step (no DC, OR site is removed → all DCs
-                # become free propagation, decoupling this site).
                 entries.append((row, site_idx(ix, iy, k_prev), "p_site", -1.0))
 
     for name, ends in link_sites.items():
         link_removed = name in removed_links
-        # Also check if either adjacent site is removed
-        near_site = ends["near"][:2]
-        far_site = ends["far"][:2]
         for k in range(Nz_link):
-            k_prev = (k - 1) % Nz_link
+            k_prev = (k - dir_sign) % Nz_link
             row = link_idx(name, k)
             extra_phase_k = extras[name][k]
             if (k == 0 or k == half_link) and not link_removed:
                 site_info = ends["near"] if k == 0 else ends["far"]
                 site_ix, site_iy, site_slot = site_info
-                # Decouple if the site on the other end is removed.
                 if (site_ix, site_iy) in removed_sites:
                     entries.append((row, link_idx(name, k_prev),
                                      "p_link_extra", -1.0, extra_phase_k))
                 else:
-                    site_k_prev = (site_slot - 1) % Nz_site
+                    site_k_prev = (site_slot - dir_sign) % Nz_site
                     entries.append((row, link_idx(name, k_prev),
                                      "p_link_extra", -t_J, extra_phase_k))
                     entries.append((row, site_idx(site_ix, site_iy, site_k_prev),
                                      "p_site", -1j * kappa_J))
             else:
-                # Free propagation (no DC, OR link is removed).
                 entries.append((row, link_idx(name, k_prev),
                                  "p_link_extra", -1.0, extra_phase_k))
 
@@ -314,29 +510,349 @@ def build_template(Nx, Ny, Phi0, kappa_ex, kappa_J,
         bus_in=bus_in, bus_drop=bus_drop,
         Nz_site=Nz_site, Nz_link=Nz_link,
         removed_sites=removed_sites, removed_links=removed_links,
+        dc_flip=dc_flip,
     )
 
 
-def solve_one(omega, template, beta0_eta_over_pi, kappa_ex, alpha):
+# ═════════════════════════════════════════════════════════════════════════════
+#  AQH TMM template
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# Build sparse matrix entries for the AQH brick-wall lattice.
+#
+# Conventions:
+#   - Sites and links each have Nz_site / Nz_link grid points.
+#   - Site DCs at slots {N=0, E=4, S=8, W=12}; bus on whichever cardinal slot
+#     has no link neighbour.
+#   - Link DCs at the same 4 cardinal slots, each connecting to one neighbour
+#     site (N → site at (c, r-1), E → (c+1, r), S → (c, r+1), W → (c-1, r)).
+#   - At each DC, the matched slots are: this ring's slot k connects to the
+#     neighbour ring's antipodal slot (k+8 mod 16) so the DC pair sits on the
+#     same physical line tangent to both rings.
+#
+# The Peierls phase φ_x,y is the link's full round-trip phase. We distribute
+# it uniformly across all Nz_link grid points so each step contributes
+# φ/Nz_link to the propagation phase. β₀η enters the same way.
+#
+# Building convention follows IQH: each row of the sparse system corresponds
+# to E_k = (sum of incoming amplitudes) at the next grid point, encoded as
+# (M = I + R) E = s with M, R off-diagonal entries (-coeff·p_factor).
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def build_template_aqh(Nx, Ny, phi0, kappa_ex, kappa_J,
+                          bus_in_idx=None, bus_drop_idx=None,
+                          Nz_site=NZ_SITE, Nz_link=NZ_LINK,
+                          removed_sites=None, removed_links=None,
+                          dc_flip=False):
+    """Build the AQH TMM template for a brick-wall (2Nx-1)×(2Ny-1) lattice.
+
+    Parameters
+    ----------
+    Nx, Ny : int
+        Brick-wall dimensions. Sites = Nx·(Ny-1) + Ny·(Nx-1), links = (Nx-1)(Ny-1).
+    phi0 : float
+        Round-trip Peierls phase per site→link DC pair (radians).
+        (Currently unused — link Peierls phases are built in via slot pattern;
+        kept as parameter for future use.)
+    kappa_ex, kappa_J : float
+        Bus and link DC amplitude couplings.
+    bus_in_idx, bus_drop_idx : int (1-based)
+        Site indices for IN and OUT. Default = aqh_default_bus_positions().
+    dc_flip : bool, default False
+        If True, flip the slot-ordering convention at every ring. Photon
+        circulation reverses (CW ↔ CCW). Experimentally: this is what
+        flipping the bus DC tangent direction does — light enters from
+        the opposite side of the bus and excites the opposite pseudospin.
     """
-    Per-step propagation factors.
+    removed_sites = set(removed_sites) if removed_sites else set()
+    removed_links = set(removed_links) if removed_links else set()
+
+    sites = aqh_site_positions(Nx, Ny)
+    links = aqh_link_positions(Nx, Ny)
+    n_sites = len(sites); n_links = len(links)
+    if n_sites == 0:
+        raise ValueError(
+            f"AQH {Nx}×{Ny} has no rings — Nx and Ny must both be ≥ 2.")
+
+    site_lookup = {(c, r): i for i, (c, r, _, _) in enumerate(sites, start=1)}
+    link_lookup = {(c, r): j for j, (c, r, _, _) in enumerate(links, start=1)}
+
+    if bus_in_idx is None or bus_drop_idx is None:
+        bus_in_idx, bus_drop_idx = aqh_default_bus_positions(Nx, Ny)
+    removed_sites = removed_sites - {bus_in_idx, bus_drop_idx}
+
+    # State vector layout: sites first, then links.
+    state_size = n_sites * Nz_site + n_links * Nz_link
+    site_offset = {i: (i - 1) * Nz_site for i in range(1, n_sites + 1)}
+    link_base   = n_sites * Nz_site
+    link_offset = {j: link_base + (j - 1) * Nz_link for j in range(1, n_links + 1)}
+
+    def site_idx(i, k):
+        return site_offset[i] + (k % Nz_site)
+    def link_idx(j, k):
+        return link_offset[j] + (k % Nz_link)
+
+    # Slot constants depend on Nz_site (cardinal positions at quarter-turns).
+    # Require Nz_site divisible by 4 for clean integer slots.
+    if Nz_site % 4 != 0:
+        raise ValueError(
+            f"Nz_site must be a multiple of 4 (got {Nz_site}). The AQH "
+            f"slot layout uses N=0, E=Nz/4, S=Nz/2, W=3Nz/4.")
+    aqh_slots = _aqh_slots(Nz_site)
+    sN = aqh_slots['N']; sE = aqh_slots['E']
+    sS = aqh_slots['S']; sW = aqh_slots['W']
+
+    # Antipodal slot pairs (DC pair convention): N↔S, E↔W.
+    # When ring A connects to ring B via a DC, A's slot s mates with B's
+    # slot (s+Nz/2) mod Nz — i.e. the two rings are tangent at their facing
+    # edges, with photon arcs going around opposite halves.
+    SLOT_OPP = {sN: sS, sS: sN, sE: sW, sW: sE}
+
+    # Direction of each cardinal neighbor (Δc, Δr) given a starting point
+    DIR_OFFSET = {sN: ( 0, -1), sS: ( 0,  1),
+                   sE: ( 1,  0), sW: (-1,  0)}
+
+    # ── For each site, find which slots have link neighbors. ─────────────
+    # site_dc_map[i] = {slot: ("link", link_j, "this_slot", "neighbor_slot")
+    #                       | ("bus_in", None, ...) | ("bus_drop", None, ...)}
+    site_dc_map = {i: {} for i in range(1, n_sites + 1)}
+    for i, (c, r, _, _) in enumerate(sites, start=1):
+        for slot, (dc, dr) in DIR_OFFSET.items():
+            j_idx = link_lookup.get((c + dc, r + dr))
+            if j_idx is not None:
+                neighbor_slot = SLOT_OPP[slot]
+                site_dc_map[i][slot] = ("link", j_idx, neighbor_slot)
+
+    # Pick bus slot opposite to the closest link neighbour, so the bus
+    # exits the ring toward the lattice exterior (matching IQH convention).
+    # Strategy:
+    #   - If exactly one link DC is occupied (corner sites), put the bus at
+    #     the antipodal slot (S, E, W, or N).
+    #   - Otherwise, fall through to a fixed preference order.
+    def pick_bus_slot(site_idx_1based):
+        taken = set(site_dc_map[site_idx_1based].keys())
+        link_slots = [s for s in (sN, sE, sS, sW) if s in taken]
+        if len(link_slots) == 1:
+            opposite = SLOT_OPP[link_slots[0]]
+            if opposite not in taken:
+                return opposite
+        # Fallback: prefer N → S → E → W (favours exits at top/bottom edges)
+        for s in (sN, sS, sE, sW):
+            if s not in taken:
+                return s
+        return None
+
+    bus_in_slot = pick_bus_slot(bus_in_idx)
+    if bus_in_slot is None:
+        raise RuntimeError(f"Cannot place bus IN on site {bus_in_idx}: no free slots")
+    site_dc_map[bus_in_idx][bus_in_slot] = ("bus_in", None, None)
+
+    if bus_drop_idx != bus_in_idx:
+        bus_drop_slot = pick_bus_slot(bus_drop_idx)
+        if bus_drop_slot is None:
+            raise RuntimeError(f"Cannot place bus DROP on site {bus_drop_idx}: no free slots")
+        site_dc_map[bus_drop_idx][bus_drop_slot] = ("bus_drop", None, None)
+    else:
+        bus_drop_slot = bus_in_slot   # degenerate, single-site case
+
+    # ── For each link, find which slots have site neighbors. ─────────────
+    # link_dc_map[j] = {slot: (site_i, "neighbor_slot")}
+    link_dc_map = {j: {} for j in range(1, n_links + 1)}
+    for j, (c, r, _, _) in enumerate(links, start=1):
+        for slot, (dc, dr) in DIR_OFFSET.items():
+            i_idx = site_lookup.get((c + dc, r + dr))
+            if i_idx is not None:
+                link_dc_map[j][slot] = (i_idx, SLOT_OPP[slot])
+
+    t_ex = np.sqrt(1.0 - kappa_ex ** 2)
+    t_J  = np.sqrt(1.0 - kappa_J ** 2)
+
+    entries = []; src_rows = []; src_vals = []
+
+    # Direction of perimeter slot ordering (see IQH build_template).
+    dir_sign = -1 if dc_flip else +1
+
+    # ── Site equations ───────────────────────────────────────────────────
+    for i in range(1, n_sites + 1):
+        site_removed = (i in removed_sites)
+        slots = site_dc_map[i]
+        for k in range(Nz_site):
+            k_prev = (k - dir_sign) % Nz_site
+            row = site_idx(i, k)
+            if k in slots and not site_removed:
+                action = slots[k]; kind = action[0]
+                if kind == "bus_in":
+                    entries.append((row, site_idx(i, k_prev), "p_site", -t_ex))
+                    src_rows.append(row); src_vals.append(1j * kappa_ex)
+                elif kind == "bus_drop":
+                    entries.append((row, site_idx(i, k_prev), "p_site", -t_ex))
+                else:  # link
+                    _, link_j, neighbor_slot = action
+                    if link_j in removed_links:
+                        entries.append((row, site_idx(i, k_prev),
+                                         "p_site", -1.0))
+                    else:
+                        # Self-coupling (transmitted)
+                        entries.append((row, site_idx(i, k_prev),
+                                         "p_site", -t_J))
+                        # Cross-coupling from the link, at predecessor of
+                        # the link's DC slot for this neighbor.
+                        link_k_prev = (neighbor_slot - dir_sign) % Nz_link
+                        entries.append((row, link_idx(link_j, link_k_prev),
+                                         "p_link", -1j * kappa_J))
+            else:
+                entries.append((row, site_idx(i, k_prev), "p_site", -1.0))
+
+    # ── Link equations ───────────────────────────────────────────────────
+    for j in range(1, n_links + 1):
+        link_removed = (j in removed_links)
+        slots = link_dc_map[j]
+        for k in range(Nz_link):
+            k_prev = (k - dir_sign) % Nz_link
+            row = link_idx(j, k)
+            if k in slots and not link_removed:
+                site_i, neighbor_slot = slots[k]
+                if site_i in removed_sites:
+                    entries.append((row, link_idx(j, k_prev),
+                                     "p_link", -1.0))
+                else:
+                    site_k_prev = (neighbor_slot - dir_sign) % Nz_site
+                    entries.append((row, link_idx(j, k_prev),
+                                     "p_link", -t_J))
+                    entries.append((row, site_idx(site_i, site_k_prev),
+                                     "p_site", -1j * kappa_J))
+            else:
+                entries.append((row, link_idx(j, k_prev),
+                                 "p_link", -1.0))
+
+    # Pack arrays. kinds: 0 = p_site, 1 = p_link.
+    rows = np.array([e[0] for e in entries], dtype=np.int32)
+    cols = np.array([e[1] for e in entries], dtype=np.int32)
+    coeffs = np.array([e[3] for e in entries], dtype=complex)
+    kinds = np.array([0 if e[2] == "p_site" else 1 for e in entries], dtype=np.int8)
+    extras_arr = np.zeros(len(entries), dtype=float)
+
+    return dict(
+        rows=rows, cols=cols, kinds=kinds, coeffs=coeffs,
+        extras_arr=extras_arr,
+        diag_rows=np.arange(state_size, dtype=np.int32),
+        src_rows_arr=np.array(src_rows, dtype=np.int32),
+        src_vals_arr=np.array(src_vals, dtype=complex),
+        state_size=state_size,
+        site_idx=site_idx, link_idx=link_idx,
+        lattice_type="AQH",
+        Nx=Nx, Ny=Ny, n_sites=n_sites, n_links=n_links,
+        sites=sites, links=links,
+        bus_in_idx=bus_in_idx, bus_drop_idx=bus_drop_idx,
+        bus_in_slot=bus_in_slot, bus_drop_slot=bus_drop_slot,
+        Nz_site=Nz_site, Nz_link=Nz_link,
+        phi0=phi0,
+        removed_sites=removed_sites, removed_links=removed_links,
+        dc_flip=dc_flip,
+    )
+
+
+def solve_one_aqh(omega, template, beta0_eta_over_pi, kappa_ex, alpha):
+    """AQH steady-state solver. Same structure as IQH solve_one but
+    only 2 entry kinds (0=p_site, 1=p_link).
+    """
+    L_site = 1.0
+    Nz_site = template["Nz_site"]; Nz_link = template["Nz_link"]
+    dz_site = L_site / Nz_site
+    dz_link = L_site / Nz_link
+
+    p_site = np.exp(1j * omega * dz_site - alpha * dz_site / 2.0)
+    beta0_eta = beta0_eta_over_pi * np.pi
+    p_link = np.exp(1j * omega * dz_link
+                     + 1j * beta0_eta / Nz_link
+                     - alpha * dz_link / 2.0)
+
+    rows = template["rows"]; cols = template["cols"]
+    kinds = template["kinds"]; coeffs = template["coeffs"]
+    diag_rows = template["diag_rows"]
+    src_rows_arr = template["src_rows_arr"]
+    src_vals_arr = template["src_vals_arr"]
+    state_size = template["state_size"]
+
+    vals = np.where(kinds == 0, coeffs * p_site, coeffs * p_link)
+    rows_full = np.concatenate([rows, diag_rows])
+    cols_full = np.concatenate([cols, diag_rows])
+    vals_full = np.concatenate([vals, np.ones(state_size, dtype=complex)])
+
+    M = csc_matrix((vals_full, (rows_full, cols_full)),
+                    shape=(state_size, state_size))
+    s = np.zeros(state_size, dtype=complex)
+    s[src_rows_arr] = src_vals_arr
+
+    lu = splu(M)
+    E = lu.solve(s)
+
+    # Through and drop ports
+    t_ex = np.sqrt(1.0 - kappa_ex ** 2)
+    site_idx = template["site_idx"]
+    bus_in_idx   = template["bus_in_idx"];   bus_in_slot   = template["bus_in_slot"]
+    bus_drop_idx = template["bus_drop_idx"]; bus_drop_slot = template["bus_drop_slot"]
+    dir_sign = -1 if template.get("dc_flip", False) else +1
+    pred_in   = (bus_in_slot   - dir_sign) % Nz_site
+    pred_drop = (bus_drop_slot - dir_sign) % Nz_site
+    e_at_in   = p_site * E[site_idx(bus_in_idx,   pred_in)]
+    e_at_drop = p_site * E[site_idx(bus_drop_idx, pred_drop)]
+    s_thru = t_ex * 1.0 + 1j * kappa_ex * e_at_in
+    s_drop = 1j * kappa_ex * e_at_drop
+
+    return E, s_drop, s_thru
+
+
+def build_propagator_aqh(omega, template, beta0_eta_over_pi, alpha):
+    """Return (R, s) for AQH iteration: E^(n+1) = R E^(n) + s."""
+    L_site = 1.0
+    Nz_site = template["Nz_site"]; Nz_link = template["Nz_link"]
+    dz_site = L_site / Nz_site
+    dz_link = L_site / Nz_link
+
+    p_site = np.exp(1j * omega * dz_site - alpha * dz_site / 2.0)
+    beta0_eta = beta0_eta_over_pi * np.pi
+    p_link = np.exp(1j * omega * dz_link
+                     + 1j * beta0_eta / Nz_link
+                     - alpha * dz_link / 2.0)
+
+    rows = template["rows"]; cols = template["cols"]
+    kinds = template["kinds"]; coeffs = template["coeffs"]
+    src_rows_arr = template["src_rows_arr"]
+    src_vals_arr = template["src_vals_arr"]
+    state_size = template["state_size"]
+
+    vals = np.where(kinds == 0, -coeffs * p_site, -coeffs * p_link)
+    R = csc_matrix((vals, (rows, cols)), shape=(state_size, state_size))
+    s = np.zeros(state_size, dtype=complex)
+    s[src_rows_arr] = src_vals_arr
+    return R, s
+
+
+def solve_one(omega, template, beta0_eta_over_pi, kappa_ex, alpha):
+    """IQH steady-state solver: solve (I - R) E = s and return (E, s_drop, s_thru).
+
+    Per-step propagation factors:
+        p_site      = e^{iω Δz - αΔz/2}
+        p_link_base = e^{iω Δz + iβ₀η/Nz_link - αΔz/2}
 
     PHYSICS NOTE — DO NOT confuse the *physical* length of the link ring
-    with the *detuning-dependent* phase. In a real IQH-lattice device, the link
-    ring is longer than the site ring by η = λ₀/(2 n_eff), which is half a
-    wavelength — TINY (η/L_site ~ 10⁻⁴). Yet β₀ η = π because β₀ is large.
+    with the *detuning-dependent* phase. In a real IQH-lattice device, the
+    link ring is longer than the site ring by η = λ₀/(2 n_eff), which is
+    half a wavelength — TINY (η/L_site ~ 10⁻⁴). Yet β₀ η = π because β₀
+    is large.
 
-    So the link's round-trip phase decomposes as
+    The link's round-trip phase decomposes as
         β L_link = β₀ L_link + ω L_link
                  = (β₀ L_site + β₀ η) + ω(L_site + η)
                  = (carrier wraps to 2πN) + β₀η + ω L_site + ω η
     On FSR scales (|ω| ~ 2π) the ω η piece is ~10⁻⁴·2π — negligible. The
     *only* non-negligible link-vs-site difference is the static β₀ η.
 
-    The single physically meaningful knob is β₀η, the static phase the link
-    ring picks up beyond the carrier wrap. We expose it in units of π:
-        beta0_eta_over_pi = 1.0  →  full anti-resonance (IQH)  ← default
-        beta0_eta_over_pi = 0.0  →  link & site degenerate         (mess)
+    The single physically meaningful knob is β₀η, exposed in units of π:
+        beta0_eta_over_pi = 1.0  →  full anti-resonance (IQH default)
+        beta0_eta_over_pi = 0.0  →  link & site degenerate (mess)
         beta0_eta_over_pi = 0.5  →  link tuned a quarter-FSR off
     Periodic mod 2 (any integer multiple of 2π is the identity).
     """
@@ -344,8 +860,6 @@ def solve_one(omega, template, beta0_eta_over_pi, kappa_ex, alpha):
     Nz_site = template["Nz_site"]; Nz_link = template["Nz_link"]
     dz_site = L_site / Nz_site
     # Link uses L_site for the propagation length too — see docstring.
-    # The η-induced length difference is irrelevant on FSR scales; only
-    # the static β₀ η matters and that's a separate constant phase.
     dz_link = L_site / Nz_link
 
     p_site = np.exp(1j * omega * dz_site - alpha * dz_site / 2.0)
@@ -363,6 +877,7 @@ def solve_one(omega, template, beta0_eta_over_pi, kappa_ex, alpha):
     state_size = template["state_size"]
     site_idx = template["site_idx"]
 
+    # IQH entries: kind 0 = p_site, kind 1 = p_link_extra
     vals = np.where(kinds == 0,
                      coeffs * p_site,
                      coeffs * p_link_base * np.exp(1j * extras_arr))
@@ -380,13 +895,14 @@ def solve_one(omega, template, beta0_eta_over_pi, kappa_ex, alpha):
 
     t_ex = np.sqrt(1.0 - kappa_ex ** 2)
     # bus_in / bus_drop are 3-tuples (ix, iy, slot); the field arriving at
-    # the bus DC is at the predecessor grid index (slot - 1) mod Nz_site.
+    # the bus DC is at the predecessor grid index. Direction depends on dc_flip.
+    dir_sign = -1 if template.get("dc_flip", False) else +1
     i_in, j_in, s_in_slot = template["bus_in"]
-    pred_in = (s_in_slot - 1) % Nz_site
+    pred_in = (s_in_slot - dir_sign) % Nz_site
     e_in_at_bus_in = p_site * E[site_idx(i_in, j_in, pred_in)]
     s_thru = t_ex * 1.0 + 1j * kappa_ex * e_in_at_bus_in
     i_d, j_d, s_d_slot = template["bus_drop"]
-    pred_d = (s_d_slot - 1) % Nz_site
+    pred_d = (s_d_slot - dir_sign) % Nz_site
     e_in_at_bus_drop = p_site * E[site_idx(i_d, j_d, pred_d)]
     s_drop = 1j * kappa_ex * e_in_at_bus_drop
 
@@ -467,23 +983,44 @@ def time_evolve(omega, template, beta0_eta_over_pi, kappa_ex, alpha,
     Δz steps on high-Q modes. The user is expected to pick N_steps to
     show the interesting transient.
     """
-    R, s = build_propagator(omega, template, beta0_eta_over_pi, alpha)
+    is_aqh = template.get("lattice_type") == "AQH"
+    if is_aqh:
+        R, s = build_propagator_aqh(omega, template, beta0_eta_over_pi, alpha)
+    else:
+        R, s = build_propagator(omega, template, beta0_eta_over_pi, alpha)
 
     Nz_site = template["Nz_site"]
     site_idx = template["site_idx"]
     p_site_factor = np.exp(1j * omega * (1.0 / Nz_site)
                               - alpha * (1.0 / Nz_site) / 2.0)
-    i_in, j_in, s_in_slot = template["bus_in"]
-    pred_in = (s_in_slot - 1) % Nz_site
-    i_d, j_d, s_d_slot = template["bus_drop"]
-    pred_d = (s_d_slot - 1) % Nz_site
-    bus_in_grid = site_idx(i_in, j_in, pred_in)
-    bus_drop_grid = site_idx(i_d, j_d, pred_d)
+    dir_sign = -1 if template.get("dc_flip", False) else +1
+    if is_aqh:
+        # AQH: bus IN/OUT are 1-based site indices; their bus DC slots are
+        # stored in the template (typically WEST = 12, depends on geometry).
+        bus_in_idx = template["bus_in_idx"]
+        bus_drop_idx = template["bus_drop_idx"]
+        bus_in_slot = template["bus_in_slot"]
+        bus_drop_slot = template["bus_drop_slot"]
+        pred_in   = (bus_in_slot   - dir_sign) % Nz_site
+        pred_drop = (bus_drop_slot - dir_sign) % Nz_site
+        bus_in_grid = site_idx(bus_in_idx, pred_in)
+        bus_drop_grid = site_idx(bus_drop_idx, pred_drop)
+    else:
+        i_in, j_in, s_in_slot = template["bus_in"]
+        pred_in = (s_in_slot - dir_sign) % Nz_site
+        i_d, j_d, s_d_slot = template["bus_drop"]
+        pred_d = (s_d_slot - dir_sign) % Nz_site
+        bus_in_grid = site_idx(i_in, j_in, pred_in)
+        bus_drop_grid = site_idx(i_d, j_d, pred_d)
     t_ex = np.sqrt(1.0 - kappa_ex ** 2)
 
     # Reference steady state from direct solver
-    E_inf, _, _ = solve_one(omega, template, beta0_eta_over_pi,
-                              kappa_ex, alpha)
+    if is_aqh:
+        E_inf, _, _ = solve_one_aqh(omega, template, beta0_eta_over_pi,
+                                       kappa_ex, alpha)
+    else:
+        E_inf, _, _ = solve_one(omega, template, beta0_eta_over_pi,
+                                  kappa_ex, alpha)
 
     E = np.zeros(R.shape[0], dtype=complex)
     E_hist = []; d_hist = []; t_hist = []; steps = []
@@ -586,13 +1123,11 @@ def _draw_horseshoe_bus(ax, ring_center, side, half_side,
                          left_label, right_label,
                          left_arrow_in=False, right_arrow_out=False,
                          left_arrow_out=False, right_arrow_in=False,
-                         color=ACCENT, lw=1.2):
+                         color=ACCENT, lw=1.2,
+                         coupling_half_len=0.22, bus_bend_r=0.05,
+                         tail_len=0.18, bus_gap=0.03):
     cx, cy = ring_center
     sign = -1 if side == "lower" else +1
-    bus_gap = 0.03
-    coupling_half_len = 0.22
-    bus_bend_r = 0.05
-    tail_len = 0.18
     y_couple = cy + sign * (half_side + bus_gap)
     x_L_couple = cx - coupling_half_len
     x_R_couple = cx + coupling_half_len
@@ -644,6 +1179,256 @@ def _draw_horseshoe_bus(ax, ring_center, side, half_side,
              color=color, fontsize=6, ha="center", va=label_va)
     ax.text(x_R_tail, y_tail_end + sign * 0.04, right_label,
              color=color, fontsize=6, ha="center", va=label_va)
+
+
+
+
+def draw_aqh_schematic(ax, Nx, Ny, in_idx=None, out_idx=None, title="",
+                          template=None, E=None, I_max=None,
+                          bus_in_slot=None, bus_drop_slot=None,
+                          dc_flip=False, Nz_site=None):
+    """Render the AQH brick-wall lattice — site rings on (2Nx-1)×(2Ny-1)
+    grid, link rings interleaved.
+
+    If `template` and `E` are provided, color rings by intensity.
+    Otherwise render an empty schematic with all rings the same neutral
+    color (matching the IQH empty-lattice look).
+
+    Nz_site: ring discretization. Read from template if present, else
+        from this kwarg, else module default NZ_SITE. Affects which slots
+        are used for the bus DC. Must be a multiple of 4.
+
+    dc_flip: if True (or if template['dc_flip'] is True), the bus DC
+        tangent direction is mirrored — IN port is on the right rather
+        than the left, OUT drop port on the right rather than the left.
+        For the empty-schematic call (no template), pass dc_flip=True
+        directly.
+    """
+    sites = aqh_site_positions(Nx, Ny)
+    links = aqh_link_positions(Nx, Ny)
+
+    # Read Nz from template if present, else from kwarg, else module default.
+    if template is not None:
+        Nz_site = template["Nz_site"]
+    elif Nz_site is None:
+        Nz_site = NZ_SITE
+    aqh_slots_local = _aqh_slots(Nz_site)
+    sN = aqh_slots_local['N']; sE = aqh_slots_local['E']
+    sS = aqh_slots_local['S']; sW = aqh_slots_local['W']
+
+    # Edge case: AQH 1×1 has zero sites and zero links — no lattice exists.
+    # Clear the axes and show a placeholder rather than hitting an IndexError.
+    if not sites:
+        ax.clear()
+        ax.set_facecolor(PANEL_BG)
+        ax.set_aspect('equal'); ax.set_xticks([]); ax.set_yticks([])
+        for sp in ax.spines.values():
+            sp.set_edgecolor('#3a4560')
+        ax.text(0.5, 0.5, f"AQH {Nx}×{Ny} has no rings —\nNx and Ny must both be ≥ 2.",
+                 ha='center', va='center', color='#7a8aaa', fontsize=10,
+                 transform=ax.transAxes)
+        if title:
+            ax.set_title(title, color=ACCENT, fontsize=9, pad=4)
+        return None
+
+    if in_idx is None or out_idx is None:
+        in_idx, out_idx = aqh_default_bus_positions(Nx, Ny)
+
+    # If template given, pull bus slots from it; otherwise pick the same
+    # slots that build_template_aqh would (so empty schematic matches the
+    # actual TMM bus geometry).
+    if template is not None:
+        in_idx = template.get("bus_in_idx", in_idx)
+        out_idx = template.get("bus_drop_idx", out_idx)
+        bus_in_slot = template.get("bus_in_slot", bus_in_slot)
+        bus_drop_slot = template.get("bus_drop_slot", bus_drop_slot)
+
+    # Auto-pick bus slots if not specified — use same logic as
+    # build_template_aqh: place bus opposite to the unique link neighbour.
+    # Guard: empty lattice or out-of-range indices fall through to a safe
+    # default (W slot). This protects against calls with stale templates
+    # whose bus_in_idx no longer fits the current (Nx, Ny).
+    if bus_in_slot is None or bus_drop_slot is None:
+        site_lookup = {(c, r): i for i, (c, r, _, _) in enumerate(sites, start=1)}
+        link_lookup = {(c, r): j for j, (c, r, _, _) in enumerate(links, start=1)}
+        DIRS = {sN: (0, -1), sE: (1, 0), sS: (0, 1), sW: (-1, 0)}
+        OPP  = {sN: sS, sS: sN, sE: sW, sW: sE}
+        def auto_slot(site_idx_1based):
+            if not (1 <= site_idx_1based <= len(sites)):
+                return sW   # safe fallback for out-of-range / empty
+            c, r = sites[site_idx_1based - 1][0], sites[site_idx_1based - 1][1]
+            link_slots = [s for s, (dc, dr) in DIRS.items()
+                           if (c + dc, r + dr) in link_lookup]
+            if len(link_slots) == 1:
+                return OPP[link_slots[0]]
+            for s in (sN, sS, sE, sW):
+                if s not in link_slots:
+                    return s
+            return sW
+        if bus_in_slot is None:    bus_in_slot   = auto_slot(in_idx)
+        if bus_drop_slot is None:  bus_drop_slot = auto_slot(out_idx)
+
+    ax.clear()
+    ax.set_facecolor(PANEL_BG)
+    ax.set_aspect('equal'); ax.set_xticks([]); ax.set_yticks([])
+    for sp in ax.spines.values():
+        sp.set_edgecolor('#3a4560')
+
+    # Same ring geometry parameters as IQH plot_field_distribution
+    half_side = 0.24
+    corner_r  = 0.07
+    lw_ring   = 2.0
+
+    # Build adjacency for bond-line drawing: each link ring has 4 site
+    # neighbours (its 4 cardinal grid neighbours).
+    site_xy_lookup = {(c, r): (sx, sy) for (c, r, sx, sy) in sites}
+
+    # ── Bond lines connecting links to their site neighbours (matches IQH) ──
+    bond_color = '#1e2a40'
+    for (lc, lr, lx, ly) in links:
+        for (dc, dr) in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
+            sxy = site_xy_lookup.get((lc + dc, lr + dr))
+            if sxy is not None:
+                ax.plot([lx, sxy[0]], [ly, sxy[1]],
+                         color=bond_color, lw=0.5, zorder=1)
+
+    # ── Compute intensity grids (zero if no field given) ─────────────────
+    if template is not None and E is not None:
+        site_idx = template["site_idx"]
+        link_idx = template["link_idx"]
+        Nz_site = template["Nz_site"]
+        Nz_link = template["Nz_link"]
+        site_grids = {}
+        for i in range(1, len(sites) + 1):
+            idxs = [site_idx(i, k) for k in range(Nz_site)]
+            site_grids[i] = np.abs(E[idxs])**2
+        link_grids = {}
+        for j in range(1, len(links) + 1):
+            idxs = [link_idx(j, k) for k in range(Nz_link)]
+            link_grids[j] = np.abs(E[idxs])**2
+        if I_max is None:
+            all_vals = np.concatenate(list(site_grids.values())
+                                        + list(link_grids.values()))
+            I_max = max(float(np.max(all_vals)), 1e-30)
+    else:
+        # No field — draw with all-zero intensities (matches IQH empty schematic).
+        # Pick Nz_site = NZ_SITE, Nz_link = NZ_LINK as defaults.
+        site_grids = {i: np.zeros(NZ_SITE) for i in range(1, len(sites) + 1)}
+        link_grids = {j: np.zeros(NZ_LINK) for j in range(1, len(links) + 1)}
+        if I_max is None:
+            I_max = 1.0
+
+    # ── Draw rings via the same _draw_ring helper as IQH ─────────────────
+    # AQH slot conventions: slot 0 = SLOT_AQH_N. With the AQH plot's
+    # ax.invert_yaxis(), slot 0 is "visually north" = top of the ring.
+    #
+    # Site rings come in two flavours:
+    #   - V-sites: link neighbors at N and S (vertical chain). Light
+    #     hops top↔bottom. Native bright arc spans the visual top↔bottom
+    #     halves.
+    #   - H-sites: link neighbors at E and W (horizontal chain). Light
+    #     hops left↔right. Their natural "top/bottom" of the field
+    #     pattern is rotated 90° from V-sites.
+    # Edge sites (only one link neighbor) inherit the rotation from
+    # whichever neighbor they have: N or S → V-orientation; E or W →
+    # H-orientation.
+    #
+    # phase_offset for sites: V-sites use 0.845 (slot 0 → visually-top).
+    # H-sites use 0.845 + 0.25 mod 1 = 0.095, rotating slot 0 by 90°.
+    # With chirality=-1 for sites, slot index advances CCW visually.
+    #
+    # Links: chirality=+1 (opposite tangent rule).
+    link_lookup = {(l[0], l[1]): True for l in links}
+
+    def _classify_site(c, r):
+        """Return 'V' (N/S link neighbor) or 'H' (E/W link neighbor).
+        For corner/edge sites with one neighbor, it picks based on that
+        neighbor's direction."""
+        n_v = int((c, r-1) in link_lookup) + int((c, r+1) in link_lookup)
+        n_h = int((c-1, r) in link_lookup) + int((c+1, r) in link_lookup)
+        return 'V' if n_v >= n_h else 'H'
+
+    site_phase_V = 0.845
+    site_phase_H = 0.345     # slot 8 (E) at visual-right; slot 0 (N) at visual-left
+    link_phase = 0.845
+    for i, (c, r, sx, sy) in enumerate(sites, start=1):
+        kind = _classify_site(c, r)
+        ph = site_phase_V if kind == 'V' else site_phase_H
+        _draw_ring(ax, (sx, sy), half_side, site_grids[i], I_max,
+                    lw=lw_ring, zorder=3, phase_offset=ph,
+                    chirality=-1, corner_radius=corner_r)
+    for j, (c, r, lx, ly) in enumerate(links, start=1):
+        _draw_ring(ax, (lx, ly), half_side, link_grids[j], I_max,
+                    lw=lw_ring, zorder=2, phase_offset=link_phase,
+                    chirality=+1, corner_radius=corner_r)
+
+    # ── Bus markers (IN at lower-left, OUT at upper-left) ─────────────────
+    # NOTE: ax.invert_yaxis() is in effect, so larger plot_y is visually
+    # lower. _draw_horseshoe_bus(side="upper") adds +y to the coupling y,
+    # which under inversion draws *visually below* the ring. To get a bus
+    # visually ABOVE the ring (e.g. for OUT at the top of the lattice with
+    # slot N), we need to call side="lower" so the function subtracts y,
+    # putting the horseshoe at smaller plot_y (visually above under inversion).
+    slot_to_side = {sN: "lower",   # visually above the ring
+                     sS: "upper",   # visually below the ring
+                     sE: "upper",   # fallback for E/W (rare)
+                     sW: "lower"}
+
+    def draw_bus_for_site(site_idx_1based, slot, label_in_arrow, label_out_arrow,
+                            text_label, **kwargs):
+        if not (1 <= site_idx_1based <= len(sites)):
+            return
+        _, _, sx, sy = sites[site_idx_1based - 1]
+        side = slot_to_side[slot]
+        ax.text(sx, sy, text_label, ha="center", va="center",
+                 color="white", fontsize=6, fontweight="bold", zorder=5)
+        _draw_horseshoe_bus(ax, (sx, sy), side, half_side,
+                             label_in_arrow, label_out_arrow,
+                             **kwargs)
+
+    # Bus arrow direction tracks the DC tangent direction. Pull dc_flip
+    # from template if present, otherwise use the dc_flip arg (used by
+    # the empty-schematic preview).
+    flipped = template.get("dc_flip", False) if template is not None else dc_flip
+    if not flipped:
+        in_left, in_right = "input", "through"
+        in_kwargs   = dict(left_arrow_in=True, right_arrow_out=True)
+        drop_left, drop_right = "drop", "add"
+        drop_kwargs = dict(left_arrow_out=True)
+    else:
+        in_left, in_right = "through", "input"
+        in_kwargs   = dict(right_arrow_in=True, left_arrow_out=True)
+        drop_left, drop_right = "add", "drop"
+        drop_kwargs = dict(right_arrow_out=True)
+
+    if 1 <= in_idx <= len(sites):
+        draw_bus_for_site(in_idx, bus_in_slot, in_left, in_right, "IN",
+                            **in_kwargs)
+    if 1 <= out_idx <= len(sites) and out_idx != in_idx:
+        draw_bus_for_site(out_idx, bus_drop_slot, drop_left, drop_right, "OUT",
+                            **drop_kwargs)
+
+    # Axis limits — match IQH plot_field_distribution exactly. The bus
+    # horseshoes and port labels extend slightly beyond pad_y so they sit
+    # *outside* the panel border (matches IQH look — labels don't overlap
+    # the bus DC straight section).
+    pad_x = 0.4
+    pad_y = 0.45
+    all_x = [s[2] for s in sites] + [l[2] for l in links]
+    all_y = [s[3] for s in sites] + [l[3] for l in links]
+    if all_x and all_y:
+        ax.set_xlim(min(all_x) - pad_x, max(all_x) + pad_x)
+        ax.set_ylim(min(all_y) - pad_y, max(all_y) + pad_y)
+        ax.invert_yaxis()    # match IQH/SMA convention: row 0 at top
+
+    if title:
+        ax.set_title(title, color=ACCENT, fontsize=9, pad=4)
+
+    if template is not None and E is not None:
+        sm = plt.cm.ScalarMappable(cmap=plt.cm.inferno,
+                                      norm=plt.Normalize(vmin=0, vmax=I_max))
+        return sm
+    return None
 
 
 def plot_field_distribution(ax, E, Nx, Ny, template, title="", I_max=None):
@@ -698,11 +1483,13 @@ def plot_field_distribution(ax, E, Nx, Ny, template, title="", I_max=None):
     removed_sites = template.get("removed_sites", set())
     removed_links = template.get("removed_links", set())
 
-    # bus_in / bus_drop are 3-tuples (ix, iy, slot). Slot 0 = bottom, slot 8 = top.
+    # bus_in / bus_drop are 3-tuples (ix, iy, slot). Slot 0 = bottom; slot Nz/2 = top.
+    Nz_site_t = template["Nz_site"]
+    s_top_t = _iqh_slots(Nz_site_t)['TOP']
     bus_in_xy = (bus_in[0], bus_in[1])
     bus_drop_xy = (bus_drop[0], bus_drop[1])
-    bus_in_side = "upper" if bus_in[2] == SLOT_TOP else "lower"
-    bus_drop_side = "upper" if bus_drop[2] == SLOT_TOP else "lower"
+    bus_in_side = "upper" if bus_in[2] == s_top_t else "lower"
+    bus_drop_side = "upper" if bus_drop[2] == s_top_t else "lower"
 
     def _ghost_ring(center, label_xy=None):
         """Draw a thin dashed grey rounded square for a removed ring."""
@@ -724,7 +1511,17 @@ def plot_field_distribution(ax, E, Nx, Ny, template, title="", I_max=None):
         if (ix, iy) in removed_sites:
             _ghost_ring(site_pos[(ix, iy)], label_xy=site_pos[(ix, iy)])
             continue
-        ph = 0.75 if (ix, iy) == bus_in_xy else 0.25
+        # Slot 0 = SLOT_BUS = south of ring (below center). The perimeter
+        # parametrization starts at right-bottom corner (s_frac=0) and goes
+        # CCW; bottom-left corner is at s_frac=0.75. Setting phase_offset
+        # = 0.75 with chirality=+1 puts slot 0 there — close to the south
+        # tangent point where the bus DC physically attaches. This is the
+        # correct convention for ALL sites (IN, OUT, and bulk), since
+        # build_template uses SLOT_BUS=0 = south for all sites' slot 0.
+        # Earlier code used 0.25 for non-IN sites, which placed slot 0 at
+        # the top-right — a half-perimeter rotation that made the chiral
+        # edge-mode meander appear inverted on bottom/right edges.
+        ph = 0.75
         _draw_ring(ax, site_pos[(ix, iy)], half_side, grid_I,
                     I_max, lw=lw_ring, zorder=3,
                     phase_offset=ph, chirality=+1, corner_radius=corner_r)
@@ -741,12 +1538,25 @@ def plot_field_distribution(ax, E, Nx, Ny, template, title="", I_max=None):
 
     in_pos = site_pos[bus_in_xy]
     out_pos = site_pos[bus_drop_xy]
+    # Bus arrow direction tracks the DC tangent direction (template["dc_flip"]).
+    # Default (dc_flip=False): light enters IN bus from the left, exits right;
+    # OUT bus drops light to the left. Flipping mirrors all bus tangents:
+    # input port moves to the right, through to the left, drop to the right.
+    flipped = template.get("dc_flip", False)
+    if not flipped:
+        in_left, in_right = "input", "through"
+        in_kwargs   = dict(left_arrow_in=True, right_arrow_out=True)
+        drop_left, drop_right = "drop", "add"
+        drop_kwargs = dict(left_arrow_out=True)
+    else:
+        in_left, in_right = "through", "input"
+        in_kwargs   = dict(right_arrow_in=True, left_arrow_out=True)
+        drop_left, drop_right = "add", "drop"
+        drop_kwargs = dict(right_arrow_out=True)
     _draw_horseshoe_bus(ax, in_pos, bus_in_side, half_side,
-                         "input", "through",
-                         left_arrow_in=True, right_arrow_out=True)
+                         in_left, in_right, **in_kwargs)
     _draw_horseshoe_bus(ax, out_pos, bus_drop_side, half_side,
-                         "drop", "add",
-                         left_arrow_out=True)
+                         drop_left, drop_right, **drop_kwargs)
 
     ax.text(in_pos[0], in_pos[1], "IN", ha="center", va="center",
             color="white", fontsize=6, fontweight="bold", zorder=4)
@@ -790,13 +1600,34 @@ class ScanWorker(QThread):
     def run(self):
         try:
             p = self.p
-            bus_in, bus_drop = default_bus_positions(p["Nx"], p["Ny"])
-            template = build_template(
-                p["Nx"], p["Ny"], p["Phi0"], p["kappa_ex"], p["kappa_J"],
-                bus_in=bus_in, bus_drop=bus_drop,
-                removed_sites=p.get("removed_sites"),
-                removed_links=p.get("removed_links"),
-            )
+            lat_type = p.get("lattice_type", "IQH")
+            if lat_type == "AQH":
+                # AQH: bus_in_idx and bus_drop_idx are 1-based site indices
+                template = build_template_aqh(
+                    p["Nx"], p["Ny"], p["phi0"],
+                    p["kappa_ex"], p["kappa_J"],
+                    bus_in_idx=p.get("bus_in_idx"),
+                    bus_drop_idx=p.get("bus_drop_idx"),
+                    Nz_site=p.get("Nz_site", NZ_SITE),
+                    Nz_link=p.get("Nz_link", NZ_LINK),
+                    removed_sites=p.get("removed_sites"),
+                    removed_links=p.get("removed_links"),
+                    dc_flip=p.get("dc_flip", False),
+                )
+                solver = solve_one_aqh
+            else:
+                Nz_site = p.get("Nz_site", NZ_SITE)
+                Nz_link = p.get("Nz_link", NZ_LINK)
+                bus_in, bus_drop = default_bus_positions(p["Nx"], p["Ny"], Nz_site=Nz_site)
+                template = build_template(
+                    p["Nx"], p["Ny"], p["Phi0"], p["kappa_ex"], p["kappa_J"],
+                    bus_in=bus_in, bus_drop=bus_drop,
+                    Nz_site=Nz_site, Nz_link=Nz_link,
+                    removed_sites=p.get("removed_sites"),
+                    removed_links=p.get("removed_links"),
+                    dc_flip=p.get("dc_flip", False),
+                )
+                solver = solve_one
             omegas = p["omegas"]
             N = len(omegas)
             Td = np.zeros(N); Tt = np.zeros(N)
@@ -804,7 +1635,7 @@ class ScanWorker(QThread):
             for i, w in enumerate(omegas):
                 if self._abort:
                     return
-                _, sd, st = solve_one(w, template, p["beta0_eta_over_pi"],
+                _, sd, st = solver(w, template, p["beta0_eta_over_pi"],
                                        p["kappa_ex"], p["alpha"])
                 Td[i] = abs(sd) ** 2
                 Tt[i] = abs(st) ** 2
@@ -871,8 +1702,24 @@ class TimeEvolutionDialog(QDialog):
         self.E_inf = None
         self.I_max_ss = 1.0   # for normalization
         self.worker = None
+        self._is_aqh = (self.template.get("lattice_type") == "AQH")
 
         self._build_ui()
+
+    def _render_field(self, ax, E, title, I_max):
+        """Lattice-type-aware field renderer. Returns the ScalarMappable
+        for colorbar setup. Used by live preview, MP4 export, and GIF export.
+        """
+        if self._is_aqh:
+            in_idx = self.template["bus_in_idx"]
+            out_idx = self.template["bus_drop_idx"]
+            return draw_aqh_schematic(
+                ax, self.Nx, self.Ny, in_idx=in_idx, out_idx=out_idx,
+                title=title, template=self.template, E=E, I_max=I_max)
+        else:
+            return plot_field_distribution(
+                ax, E, self.Nx, self.Ny, self.template,
+                title=title, I_max=I_max)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -1073,11 +1920,20 @@ class TimeEvolutionDialog(QDialog):
         self.ax_drop.plot(steps_rt, Td_t, lw=1.0, color='#ff4a6e')
         # Reference line: steady-state drop power
         site_idx_fn = self.template["site_idx"]
-        i_d, j_d, s_d_slot = self.template["bus_drop"]
-        pred_d = (s_d_slot - 1) % Nz_site
-        p_factor = np.exp(1j*self.omega*(1.0/Nz_site)
-                            - self.alpha*(1.0/Nz_site)/2)
-        s_drop_ss = 1j * self.kappa_ex * p_factor * E_inf[site_idx_fn(i_d, j_d, pred_d)]
+        is_aqh = self.template.get("lattice_type") == "AQH"
+        dir_sign = -1 if self.template.get("dc_flip", False) else +1
+        if is_aqh:
+            bus_drop_idx = self.template["bus_drop_idx"]
+            bus_drop_slot = self.template["bus_drop_slot"]
+            pred_d = (bus_drop_slot - dir_sign) % Nz_site
+            drop_state_idx = site_idx_fn(bus_drop_idx, pred_d)
+        else:
+            i_d, j_d, s_d_slot = self.template["bus_drop"]
+            pred_d = (s_d_slot - dir_sign) % Nz_site
+            drop_state_idx = site_idx_fn(i_d, j_d, pred_d)
+        p_factor = np.exp(1j * self.omega * (1.0 / Nz_site)
+                            - self.alpha * (1.0 / Nz_site) / 2)
+        s_drop_ss = 1j * self.kappa_ex * p_factor * E_inf[drop_state_idx]
         Td_ss = abs(s_drop_ss)**2
         self.ax_drop.axhline(Td_ss, color='#00e5ff', ls='--', lw=0.8,
                                 alpha=0.7, label=f'steady = {Td_ss:.4f}')
@@ -1115,11 +1971,10 @@ class TimeEvolutionDialog(QDialog):
             f'round-trip: {n_rt:.1f} / {self.steps[-1]/Nz_site:.0f}')
 
         self.ax_lat.clear()
-        sm = plot_field_distribution(
-            self.ax_lat, E, self.Nx, self.Ny, self.template,
+        sm = self._render_field(
+            self.ax_lat, E,
             title=f'round-trip n = {n_rt:.1f}',
-            I_max=self.I_max_ss,   # normalize to steady-state max
-        )
+            I_max=self.I_max_ss)
         # Mark current time on the drop trace with a vertical line
         for line in list(self.ax_drop.lines):
             if getattr(line, '_is_time_marker', False):
@@ -1153,8 +2008,8 @@ class TimeEvolutionDialog(QDialog):
 
         n_frames = len(self.steps)
         Nz_site = self.template["Nz_site"]
-        sm0 = plot_field_distribution(
-            ax_lat, self.E_hist[0], self.Nx, self.Ny, self.template,
+        sm0 = self._render_field(
+            ax_lat, self.E_hist[0],
             title=f'round-trip n = {self.steps[0]/Nz_site:.1f}',
             I_max=self.I_max_ss)
         cbar = fig.colorbar(sm0, cax=cax,
@@ -1165,8 +2020,8 @@ class TimeEvolutionDialog(QDialog):
 
         def update(i):
             ax_lat.clear()
-            plot_field_distribution(
-                ax_lat, self.E_hist[i], self.Nx, self.Ny, self.template,
+            self._render_field(
+                ax_lat, self.E_hist[i],
                 title=f'round-trip n = {self.steps[i]/Nz_site:.1f}',
                 I_max=self.I_max_ss)
             return []
@@ -1236,8 +2091,8 @@ class TimeEvolutionDialog(QDialog):
         cax = fig.add_axes([0.90, 0.10, 0.025, 0.78])
 
         Nz_site = self.template["Nz_site"]
-        sm0 = plot_field_distribution(
-            ax_lat, self.E_hist[sel[0]], self.Nx, self.Ny, self.template,
+        sm0 = self._render_field(
+            ax_lat, self.E_hist[sel[0]],
             title=f'round-trip n = {self.steps[sel[0]]/Nz_site:.1f}',
             I_max=self.I_max_ss)
         cbar = fig.colorbar(sm0, cax=cax,
@@ -1253,8 +2108,8 @@ class TimeEvolutionDialog(QDialog):
             frames = []
             for k, i in enumerate(sel):
                 ax_lat.clear()
-                plot_field_distribution(
-                    ax_lat, self.E_hist[i], self.Nx, self.Ny, self.template,
+                self._render_field(
+                    ax_lat, self.E_hist[i],
                     title=f'round-trip n = {self.steps[i]/Nz_site:.1f}',
                     I_max=self.I_max_ss)
                 canvas.draw()
@@ -1299,7 +2154,7 @@ PHI_TICKS = 200   # 0..200 ticks -> 0..2 (in units of pi)
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Lida Xu's IQH-Lattice TMM Explorer — v1.2")
+        self.setWindowTitle("Lida Xu's IQH/AQH-Lattice TMM Explorer — v1.3")
         self.setMinimumSize(1400, 800)
         icon_path = os.path.join(_BUNDLE_DIR, 'icon.ico')
         if os.path.exists(icon_path):
@@ -1365,7 +2220,7 @@ class MainWindow(QMainWindow):
         main.setSpacing(5); main.setContentsMargins(8, 8, 8, 8)
 
         # Title
-        t = QLabel('IQH-LATTICE TMM EXPLORER')
+        t = QLabel('IQH/AQH-LATTICE TMM EXPLORER')
         t.setFont(QFont('Courier New', 13, QFont.Bold))
         t.setStyleSheet(f'color:{ACCENT};padding:2px 0;')
         s = QLabel('z-discretized TMM  ·  sparse LU  ·  chiral edge modes')
@@ -1445,49 +2300,97 @@ class MainWindow(QMainWindow):
 
         # ── Lattice group ────────────────────────────────────────────────────
         gd = QGroupBox('Lattice'); gd.setFixedWidth(280)
-        dl = QGridLayout(gd); dl.setSpacing(3)
+        dl = QGridLayout(gd); dl.setSpacing(4)
+        dl.setColumnStretch(0, 0); dl.setColumnStretch(1, 1)
+        dl.setColumnStretch(2, 0); dl.setColumnStretch(3, 1)
 
+        # Row 0: lattice type + bus input direction
+        # Lattice type — IQH (Hafezi-style) or AQH (zigzag/brick-wall with
+        # central link rings per diamond plaquette). Both run full TMM
+        # physics; AQH uses 4-DC link rings.
+        self.cmb_lat_type = QComboBox()
+        self.cmb_lat_type.addItems(['IQH', 'AQH'])
+        self.cmb_lat_type.currentIndexChanged.connect(self._on_lat_type_change)
+        dl.addWidget(QLabel('Type'),     0, 0)
+        dl.addWidget(self.cmb_lat_type,  0, 1)
+
+        # Bus input direction. Toggling reverses the slot ordering across
+        # every ring (per-ring chirality flip), AND reverses the bus
+        # waveguide arrows. For multi-ring lattices this also flips the
+        # topological invariant — see THEORY.md §15.
+        self.cmb_dcflip = QComboBox()
+        self.cmb_dcflip.addItems(['Left', 'Right'])
+        self.cmb_dcflip.setToolTip(
+            'Bus DC tangent direction (which end of the bus is the input).\n'
+            'Flipping reverses propagation around every ring and the chiral\n'
+            'edge mode direction. The bus waveguide arrows update accordingly.')
+        self.cmb_dcflip.currentIndexChanged.connect(self._on_dcflip_change)
+        dl.addWidget(QLabel('Input'),    0, 2)
+        dl.addWidget(self.cmb_dcflip,    0, 3)
+
+        # Row 1: Nx, Ny side-by-side (label above each spinbox)
         self.spn_nx = QSpinBox(); self.spn_nx.setRange(1, 12); self.spn_nx.setValue(4)
         self.spn_ny = QSpinBox(); self.spn_ny.setRange(1, 12); self.spn_ny.setValue(4)
-        # Nx/Ny change geometry, so redraw the schematic (and invalidate spectrum)
         self.spn_nx.valueChanged.connect(self._on_size_change)
         self.spn_ny.valueChanged.connect(self._on_size_change)
+        dl.addWidget(QLabel('Nx'),       1, 0)
+        dl.addWidget(self.spn_nx,        1, 1)
+        dl.addWidget(QLabel('Ny'),       1, 2)
+        dl.addWidget(self.spn_ny,        1, 3)
 
-        dl.addWidget(QLabel('Nx'), 0, 0); dl.addWidget(self.spn_nx, 1, 0)
-        dl.addWidget(QLabel('Ny'), 0, 1); dl.addWidget(self.spn_ny, 1, 1)
-
+        # Row 2: bus position info
         self.bus_lbl = QLabel()
         self.bus_lbl.setStyleSheet('color:#7a8aaa;font-size:10px;')
-        dl.addWidget(self.bus_lbl, 2, 0, 1, 2)
+        dl.addWidget(self.bus_lbl,       2, 0, 1, 4)
         self._update_bus_label()
 
+        # Row 3: β₀η on the left, hint on the right
         # β₀η/π — the single physically meaningful link-vs-site phase knob.
         # 1.0 = full anti-resonance (IQH); 0.0 = link & site degenerate;
-        # periodic mod 2.
+        # periodic mod 2 in principle, but the full 0-4 range is exposed
+        # for exploring band-structure dependence.
         self.spn_beta0eta = QDoubleSpinBox()
-        self.spn_beta0eta.setRange(0.0, 2.0)
+        self.spn_beta0eta.setRange(0.0, 4.0)
         self.spn_beta0eta.setSingleStep(0.05)
         self.spn_beta0eta.setDecimals(3)
         self.spn_beta0eta.setValue(1.0)
         self.spn_beta0eta.setSuffix(' π')
-        self.spn_beta0eta.setFixedWidth(70)
         self.spn_beta0eta.valueChanged.connect(lambda _: self._invalidate())
-        dl.addWidget(QLabel('β₀η'), 3, 0); dl.addWidget(self.spn_beta0eta, 3, 1)
+        dl.addWidget(QLabel('β₀η'),      3, 0)
+        dl.addWidget(self.spn_beta0eta,  3, 1, 1, 3)
 
-        # Hint label so users know the magic value
         hint = QLabel('β₀η = π  →  anti-resonance')
         hint.setStyleSheet('color:#7a8aaa;font-size:10px;')
-        dl.addWidget(hint, 4, 0, 1, 2)
+        dl.addWidget(hint,               4, 0, 1, 4)
 
+        # Row 5: α (loss)
         # α — round-trip intensity loss = α·L_site (with L_site=1).
         # Default α=0.01 ↔ ~1.2 GHz intrinsic linewidth at 750 GHz FSR
-        # ↔ Q_int ~ 1.6e5 (typical thin-film LiNbO₃ microring).
+        # ↔ Q_int ~ 1.6e5.
         self.spn_alpha = QDoubleSpinBox()
         self.spn_alpha.setRange(0.0, 1.0); self.spn_alpha.setSingleStep(0.001)
         self.spn_alpha.setDecimals(5); self.spn_alpha.setValue(0.01)
-        self.spn_alpha.setFixedWidth(70)
         self.spn_alpha.valueChanged.connect(lambda _: self._invalidate())
-        dl.addWidget(QLabel('α (loss)'), 5, 0); dl.addWidget(self.spn_alpha, 5, 1)
+        dl.addWidget(QLabel('α (loss)'), 5, 0)
+        dl.addWidget(self.spn_alpha,     5, 1, 1, 3)
+
+        # Row 6: Nz_site — number of grid points per site ring (and link
+        # ring). More points = finer z-discretization (less aliasing of
+        # peripheral phase, smoother color-map around each ring), at the
+        # cost of a larger sparse matrix. Default 16. Must be a multiple
+        # of 16 because IQH slot allocation uses BOTTOM = 5*Nz/8.
+        self.spn_nz = QSpinBox()
+        self.spn_nz.setRange(16, 64); self.spn_nz.setSingleStep(16)
+        self.spn_nz.setValue(NZ_SITE)
+        self.spn_nz.setToolTip(
+            'Number of z-discretization grid points per ring (site and link).\n'
+            'Default 16. Higher Nz = finer spatial resolution but slower solve.\n'
+            'Must be a multiple of 16 — the IQH slot allocation uses\n'
+            'BOTTOM = 5·Nz/8 which requires this. Allowed: 16, 32, 48, 64.\n'
+            'Changing this rebuilds the template and invalidates results.')
+        self.spn_nz.valueChanged.connect(self._on_nz_change)
+        dl.addWidget(QLabel('Nz/ring'),  6, 0)
+        dl.addWidget(self.spn_nz,        6, 1, 1, 3)
 
         row.addWidget(gd)
 
@@ -1496,12 +2399,16 @@ class MainWindow(QMainWindow):
         cl = QGridLayout(gc); cl.setSpacing(3)
 
         # κ_ex slider/spinbox (range 0.001 - 0.99 mapped to 1-990).
-        # Default 0.163 ↔ κ_ex² = 0.0267 ↔ ~20 GHz at 750 GHz FSR.
+        # Default 0.359 = κ_J / √(2π). The bus extraction rate
+        # κ_ex² · FSR matches the tight-binding hopping rate
+        # J = κ_J² · FSR / (2π), making the bus coupling and the
+        # site-link hopping rates equal. With default κ_J = 0.9,
+        # this is the "matched" choice.
         self.sld_kex = QSlider(Qt.Horizontal)
-        self.sld_kex.setRange(1, 990); self.sld_kex.setValue(163)
+        self.sld_kex.setRange(1, 990); self.sld_kex.setValue(359)
         self.spn_kex = QDoubleSpinBox()
         self.spn_kex.setRange(0.001, 0.99); self.spn_kex.setDecimals(3)
-        self.spn_kex.setSingleStep(0.005); self.spn_kex.setValue(0.163)
+        self.spn_kex.setSingleStep(0.005); self.spn_kex.setValue(0.359)
         self.spn_kex.setFixedWidth(70)
         self.sld_kex.valueChanged.connect(lambda v: self.spn_kex.setValue(v / 1000.))
         self.spn_kex.valueChanged.connect(lambda v: self.sld_kex.setValue(int(round(v * 1000))))
@@ -1511,13 +2418,15 @@ class MainWindow(QMainWindow):
         cl.addWidget(self.sld_kex, 0, 1, 1, 2); cl.addWidget(self.spn_kex, 0, 3)
 
         # κ_J slider/spinbox.
-        # Default 0.409 ↔ κ_J² ≈ 0.167 ↔ J ≈ 20 GHz at 750 GHz FSR
+        # Default 0.9 ↔ κ_J² = 0.81 ↔ J ≈ 96.7 GHz at 750 GHz FSR
         # (using J = κ_J²·FSR/(2π) — see THEORY.md §6 for the factor of 2π).
+        # This is a strong-coupling regime that produces clear chiral
+        # edge mode features even in small lattices.
         self.sld_kJ = QSlider(Qt.Horizontal)
-        self.sld_kJ.setRange(1, 990); self.sld_kJ.setValue(409)
+        self.sld_kJ.setRange(1, 990); self.sld_kJ.setValue(900)
         self.spn_kJ = QDoubleSpinBox()
         self.spn_kJ.setRange(0.001, 0.99); self.spn_kJ.setDecimals(3)
-        self.spn_kJ.setSingleStep(0.005); self.spn_kJ.setValue(0.409)
+        self.spn_kJ.setSingleStep(0.005); self.spn_kJ.setValue(0.9)
         self.spn_kJ.setFixedWidth(70)
         self.sld_kJ.valueChanged.connect(lambda v: self.spn_kJ.setValue(v / 1000.))
         self.spn_kJ.valueChanged.connect(lambda v: self.sld_kJ.setValue(int(round(v * 1000))))
@@ -1526,7 +2435,9 @@ class MainWindow(QMainWindow):
         cl.addWidget(QLabel('κ_J  (site↔link)'), 1, 0)
         cl.addWidget(self.sld_kJ, 1, 1, 1, 2); cl.addWidget(self.spn_kJ, 1, 3)
 
-        # Phi0 slider/spinbox (0..2 in units of pi)
+        # Phi0 slider/spinbox (0..2 in units of pi). Only used by IQH (it's
+        # the Landau-gauge plaquette flux). Hidden when AQH is selected —
+        # AQH topology comes from connectivity + β₀η, not from Φ₀.
         self.sld_phi = QSlider(Qt.Horizontal)
         self.sld_phi.setRange(0, PHI_TICKS); self.sld_phi.setValue(50)  # 0.5 pi
         self.spn_phi = QDoubleSpinBox()
@@ -1537,8 +2448,11 @@ class MainWindow(QMainWindow):
         self.spn_phi.valueChanged.connect(lambda v: self.sld_phi.setValue(int(round(v * 100))))
         self.sld_phi.valueChanged.connect(lambda _: self._invalidate())
 
-        cl.addWidget(QLabel('Φ₀'), 2, 0)
+        self.lbl_phi = QLabel('Φ₀')
+        cl.addWidget(self.lbl_phi, 2, 0)
         cl.addWidget(self.sld_phi, 2, 1, 1, 2); cl.addWidget(self.spn_phi, 2, 3)
+        # Group widgets for show/hide toggling
+        self._phi_row_widgets = (self.lbl_phi, self.sld_phi, self.spn_phi)
 
         row.addWidget(gc)
 
@@ -1638,16 +2552,101 @@ class MainWindow(QMainWindow):
         return w
 
     # ── Invalidation ─────────────────────────────────────────────────────────
+    def _is_aqh(self):
+        """Whether the user has selected AQH lattice type."""
+        return hasattr(self, 'cmb_lat_type') and self.cmb_lat_type.currentIndex() == 1
+
+    def _dc_flip(self):
+        """DC tangent direction toggle. Returns True when the user has
+        selected the flipped configuration (link rings mirror-flipped).
+        """
+        return hasattr(self, 'cmb_dcflip') and self.cmb_dcflip.currentIndex() == 1
+
+    def _nz_site(self):
+        """Number of grid points per ring. Read from the Nz/ring spinbox;
+        falls back to the module default before the spinbox is created.
+        """
+        if not hasattr(self, 'spn_nz'):
+            return NZ_SITE
+        return int(self.spn_nz.value())
+
+    def _on_nz_change(self, _):
+        """User changed Nz/ring. This rebuilds every template and the
+        sparse matrix sizes change, so any cached spectrum/field is no
+        longer valid. Invalidate everything and redraw the schematic.
+        """
+        self.btn_save.setEnabled(False)
+        self.btn_tevol.setEnabled(False)
+        self.state['E_at_peak'] = None
+        if hasattr(self, '_scan_worker') and self._scan_worker is not None:
+            try:
+                if self._scan_worker.isRunning():
+                    self._scan_worker.request_abort()
+            except Exception:
+                pass
+        self._invalidate()
+        self._invalidate_field_only()
+        self.canvas_lat.draw_idle()
+
+    def _on_dcflip_change(self, _):
+        """User toggled the DC tangent direction. This is a real physics
+        change — flips the topology — so any cached spectrum/field is
+        no longer valid, and we redraw the schematic.
+        """
+        self.btn_save.setEnabled(False)
+        self.btn_tevol.setEnabled(False)
+        self.state['E_at_peak'] = None
+        # Stop any ongoing scan
+        if hasattr(self, '_scan_worker') and self._scan_worker is not None:
+            try:
+                if self._scan_worker.isRunning():
+                    self._scan_worker.request_abort()
+            except Exception:
+                pass
+        self._invalidate()
+        self._invalidate_field_only()
+        self.canvas_lat.draw_idle()
+
     def _update_bus_label(self):
         Nx = self.spn_nx.value(); Ny = self.spn_ny.value()
-        bus_in, bus_drop = default_bus_positions(Nx, Ny)
+        if self._is_aqh():
+            n_sites = aqh_site_count(Nx, Ny)
+            n_links = aqh_link_count(Nx, Ny)
+            in_idx, out_idx = aqh_default_bus_positions(Nx, Ny)
+            self.bus_lbl.setText(
+                f'AQH: {n_sites} sites, {n_links} link rings   '
+                f'IN=site {in_idx}  OUT=site {out_idx}')
+            return
+        bus_in, bus_drop = default_bus_positions(Nx, Ny, Nz_site=self._nz_site())
         ix_i, iy_i, sl_i = bus_in
         ix_d, iy_d, sl_d = bus_drop
-        side_i = 'top' if sl_i == SLOT_TOP else 'bot'
-        side_d = 'top' if sl_d == SLOT_TOP else 'bot'
+        s_top_now = _iqh_slots(self._nz_site())['TOP']
+        side_i = 'top' if sl_i == s_top_now else 'bot'
+        side_d = 'top' if sl_d == s_top_now else 'bot'
         self.bus_lbl.setText(
             f'IN @ ({ix_i},{iy_i}) {side_i}   '
             f'OUT @ ({ix_d},{iy_d}) {side_d}')
+
+    def _on_lat_type_change(self, _):
+        """User toggled IQH/AQH.
+
+        Φ₀ is the IQH Landau-gauge plaquette flux — meaningful only for
+        IQH. In AQH mode we hide the Φ₀ slider/spinbox/label since
+        topology comes from connectivity + β₀η instead.
+        """
+        is_aqh = self._is_aqh()
+        # Show / hide the Φ₀ row depending on lattice type
+        for w in self._phi_row_widgets:
+            w.setVisible(not is_aqh)
+        # Make sure compute / time-evolution are enabled (both lattice types
+        # support full physics).
+        self.btn_run.setEnabled(True)
+        self.btn_save.setEnabled(False)
+        self.btn_tevol.setEnabled(False)
+        self._update_bus_label()
+        self._invalidate()
+        self._invalidate_field_only()
+        self.canvas_lat.draw_idle()
 
     def _on_size_change(self, _):
         """Nx or Ny changed: invalidate AND redraw the lattice schematic.
@@ -1703,16 +2702,40 @@ class MainWindow(QMainWindow):
         """Re-render an empty lattice schematic so the structure is shown."""
         Nx = self.spn_nx.value()
         Ny = self.spn_ny.value()
-        # Use a dummy field of zeros so rings/buses are drawn at lowest intensity
-        bus_in, bus_drop = default_bus_positions(Nx, Ny)
+
+        if self._is_aqh():
+            in_idx, out_idx = aqh_default_bus_positions(Nx, Ny)
+            n_sites = aqh_site_count(Nx, Ny)
+            n_links = aqh_link_count(Nx, Ny)
+            draw_aqh_schematic(
+                self.ax_lat, Nx, Ny, in_idx=in_idx, out_idx=out_idx,
+                title=f'AQH {Nx}×{Ny} — {n_sites} sites · {n_links} link rings',
+                dc_flip=self._dc_flip(),
+                Nz_site=self._nz_site())
+            # Hide the colorbar in empty schematic (no field to colormap)
+            try:
+                self.cax_lat.clear()
+                self.cax_lat.set_axis_off()
+            except Exception:
+                pass
+            self.canvas_lat.draw_idle()
+            return
+
+        # IQH path: build template and draw via plot_field_distribution.
+        nz = self._nz_site()
+        bus_in, bus_drop = default_bus_positions(Nx, Ny, Nz_site=nz)
         template = build_template(
             Nx, Ny, 0.0, 0.10, 0.561,
             bus_in=bus_in, bus_drop=bus_drop,
+            Nz_site=nz, Nz_link=nz,
             removed_sites=self.state.get('removed_sites', set()),
             removed_links=self.state.get('removed_links', set()),
+            dc_flip=self._dc_flip(),
         )
         E_zero = np.zeros(template['state_size'], dtype=complex)
         self.ax_lat.clear()
+        # Re-enable colorbar axis (was hidden during AQH preview)
+        self.cax_lat.set_axis_on()
         sm = plot_field_distribution(
             self.ax_lat, E_zero, Nx, Ny, template,
             title=f"{Nx}×{Ny} lattice — schematic",
@@ -1784,12 +2807,33 @@ class MainWindow(QMainWindow):
             return
         npts = self.spn_npts.value()
         omegas = np.linspace(omin * 2 * np.pi, omax * 2 * np.pi, npts)
-        params = dict(Nx=Nx, Ny=Ny, Phi0=Phi0,
-                       kappa_ex=kappa_ex, kappa_J=kappa_J,
-                       beta0_eta_over_pi=beta0_eta_over_pi,
-                       alpha=alpha, omegas=omegas,
-                       removed_sites=set(self.state.get('removed_sites', set())),
-                       removed_links=set(self.state.get('removed_links', set())))
+        is_aqh = self._is_aqh()
+        dc_flip = self._dc_flip()
+        nz = self._nz_site()
+        if is_aqh:
+            in_idx, out_idx = aqh_default_bus_positions(Nx, Ny)
+            params = dict(
+                lattice_type='AQH', Nx=Nx, Ny=Ny, phi0=0.0,
+                kappa_ex=kappa_ex, kappa_J=kappa_J,
+                beta0_eta_over_pi=beta0_eta_over_pi,
+                alpha=alpha, omegas=omegas,
+                bus_in_idx=in_idx, bus_drop_idx=out_idx,
+                Nz_site=nz, Nz_link=nz,
+                # AQH ring-removal not yet implemented in UI; pass empties
+                removed_sites=set(), removed_links=set(),
+                dc_flip=dc_flip,
+            )
+        else:
+            params = dict(
+                lattice_type='IQH', Nx=Nx, Ny=Ny, Phi0=Phi0,
+                kappa_ex=kappa_ex, kappa_J=kappa_J,
+                beta0_eta_over_pi=beta0_eta_over_pi,
+                alpha=alpha, omegas=omegas,
+                Nz_site=nz, Nz_link=nz,
+                removed_sites=set(self.state.get('removed_sites', set())),
+                removed_links=set(self.state.get('removed_links', set())),
+                dc_flip=dc_flip,
+            )
 
         self.btn_run.setEnabled(False); self.btn_run.setText('Computing…')
         self.progress.setValue(0)
@@ -1884,18 +2928,32 @@ class MainWindow(QMainWindow):
         kappa_ex = self.spn_kex.value()
         alpha = self.spn_alpha.value()
 
-        E, _, _ = solve_one(omega, self.state['template'],
-                              beta0_eta_over_pi, kappa_ex, alpha)
+        template = self.state['template']
+        is_aqh = template.get("lattice_type") == "AQH"
+
+        if is_aqh:
+            E, _, _ = solve_one_aqh(omega, template,
+                                      beta0_eta_over_pi, kappa_ex, alpha)
+        else:
+            E, _, _ = solve_one(omega, template,
+                                  beta0_eta_over_pi, kappa_ex, alpha)
         self.state['E_at_peak'] = E
         self.state['last_omega'] = omega
         self.btn_tevol.setEnabled(True)
 
         Nx = self.spn_nx.value(); Ny = self.spn_ny.value()
         self.ax_lat.clear()
-        sm = plot_field_distribution(
-            self.ax_lat, E, Nx, Ny, self.state['template'],
-            title=f"ω/(2π) = {omega/(2*np.pi):+.5f}",
-        )
+        if is_aqh:
+            in_idx = template['bus_in_idx']; out_idx = template['bus_drop_idx']
+            sm = draw_aqh_schematic(
+                self.ax_lat, Nx, Ny, in_idx=in_idx, out_idx=out_idx,
+                title=f"ω/(2π) = {omega/(2*np.pi):+.5f}",
+                template=template, E=E)
+        else:
+            sm = plot_field_distribution(
+                self.ax_lat, E, Nx, Ny, template,
+                title=f"ω/(2π) = {omega/(2*np.pi):+.5f}",
+            )
         self._update_colorbar(sm)
         self.canvas_lat.draw_idle()
 
@@ -1965,12 +3023,14 @@ class MainWindow(QMainWindow):
         redrawn — the user must click Compute again to see the new
         spectrum.
         """
+        if self._is_aqh():
+            return  # AQH ring removal not yet implemented in click handler
         if event.inaxes is not self.ax_lat:
             return
         if event.xdata is None or event.ydata is None:
             return
         Nx = self.spn_nx.value(); Ny = self.spn_ny.value()
-        bus_in, bus_drop = default_bus_positions(Nx, Ny)
+        bus_in, bus_drop = default_bus_positions(Nx, Ny, Nz_site=self._nz_site())
         protected = {(bus_in[0], bus_in[1]), (bus_drop[0], bus_drop[1])}
 
         # Build list of (kind, key, center) for every ring in the lattice.
@@ -2065,8 +3125,22 @@ class MainWindow(QMainWindow):
         dlg = TimeEvolutionDialog(
             self, omega, self.state['template'],
             beta0_eta_over_pi, kappa_ex, alpha, Nx, Ny, save_dir)
+        # Keep a reference so the dialog isn't garbage-collected when this
+        # method returns. When it's closed, re-sync the main window's
+        # button states (the user can re-open it as long as a peak is
+        # selected and the spectrum is still valid).
+        self._tevol_dlg = dlg
+        dlg.finished.connect(self._on_tevol_dialog_closed)
         # Non-modal — lets the user keep working with the main window
         dlg.show()
+
+    def _on_tevol_dialog_closed(self, _result=None):
+        """Restore Time Evol. button enabled state after the dialog closes,
+        if the prerequisites (template + selected ω) are still valid.
+        """
+        if (self.state.get('template') is not None
+                and self.state.get('last_omega') is not None):
+            self.btn_tevol.setEnabled(True)
 
     def _save(self):
         save_dir = self.edit_save_path.text() or os.getcwd()

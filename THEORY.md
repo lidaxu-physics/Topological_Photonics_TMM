@@ -25,20 +25,23 @@ lattice idea. It does not assume familiarity with our simulator.
 11. [Assembling the global sparse system](#11-assembling-the-global-sparse-system)
 12. [Solving — sparse LU vs Ikeda iteration](#12-solving--sparse-lu-vs-ikeda-iteration)
 13. [Removed rings (defects)](#13-removed-rings-defects)
-14. [Mapping back to experimental units](#14-mapping-back-to-experimental-units)
-15. [What this simulator does NOT model](#15-what-this-simulator-does-not-model)
+14. [The AQH lattice — anomalous Floquet topology without flux](#14-the-aqh-lattice--anomalous-floquet-topology-without-flux)
+15. [Per-ring chirality flip (DC tangent direction)](#15-per-ring-chirality-flip-dc-tangent-direction)
+16. [Time-evolution dialog](#16-time-evolution-dialog)
+17. [Field-distribution rendering](#17-field-distribution-rendering)
+18. [Mapping back to experimental units](#18-mapping-back-to-experimental-units)
+19. [What this simulator does NOT model](#19-what-this-simulator-does-not-model)
 
 ---
 
 ## 1. Setting
 
-The IQH lattice is a 2D array of "site" microring resonators, every nearest-neighbor
-pair coupled through a "link" microring. The link rings are designed to be **anti-resonant**
-with the site rings (their round-trip phase differs by π from the carrier-induced
-2πN), so they don't host their own modes in the band of interest, but they mediate
-nearest-neighbor hopping between site rings — and crucially, they do so with a
-**directional phase** that realizes the Peierls substitution → synthetic magnetic
-field on the lattice → integer quantum Hall physics for photons.
+The simulator supports two photonic topological lattice models:
+
+- **IQH** (integer quantum Hall, Hafezi 2011): a 2D array of "site" microring resonators on a square grid, every nearest-neighbor pair coupled through a "link" microring. Synthetic magnetic flux is realized via a Peierls phase pattern on the H-link rings (Landau gauge).
+- **AQH** (anomalous quantum Hall, Liang–Chong 2013 / Pasek–Chong 2014): a brick-wall arrangement of site rings with central link rings inside each diamond plaquette. *Zero* synthetic flux per plaquette — instead, anomalous Floquet topology emerges from the cyclic four-DC link rings and the brick-wall geometry.
+
+In both, link rings are designed to be **anti-resonant** with the site rings (their round-trip phase differs by π from the carrier-induced 2πN), so they don't host their own modes in the band of interest, but they mediate nearest-neighbor hopping. In the IQH case they additionally carry a directional Peierls phase. In the AQH case the topology is a property of the geometry alone.
 
 The key quantities in a real device:
 
@@ -254,6 +257,15 @@ $$p = e^{i \omega \Delta z - \alpha \Delta z / 2}$$
 and the index $k-1$ taken modulo $N_z$ (so $k=0$'s predecessor is $k=N_z-1$, closing
 the ring). This is the discrete-time analog of $\partial_t E + v_g \partial_z E = (i\omega - \alpha/2) v_g E$.
 
+**Slot-ordering convention.** The choice $E_k \leftarrow E_{k-1}$ encodes one
+specific direction of circulation around the ring perimeter — let's call it CCW
+(counterclockwise) by convention. The opposite circulation (CW) corresponds to
+$E_k \leftarrow E_{k+1}$. In an ideal (back-scatter-free) ring the two propagation
+directions are degenerate — they live in independent pseudospin sectors. Our TMM
+simulates **one** sector at a time. The choice of sector is set by the **DC tangent
+direction** at the bus coupler (Input: left vs Input: right), which the user
+controls; see §15 for the full story.
+
 In matrix form, define the state vector $\vec{E}(t) = (E_0(t), E_1(t), \ldots, E_{15}(t))^T$.
 Then
 
@@ -392,7 +404,10 @@ doesn't enforce any auto-stop; the user picks `N_steps` and watches what happens
 
 ## 8. The IQH lattice — geometry and indexing
 
-Now scale up. The lattice is $N_x \times N_y$ site rings on a square grid, with link
+This section covers the IQH (Hafezi-style) lattice. The AQH (anomalous) lattice has
+its own slot-and-coupling conventions; see §14.
+
+Scale up. The IQH lattice is $N_x \times N_y$ site rings on a square grid, with link
 rings on every nearest-neighbor bond (horizontal H-links between $(i_x, i_y)$ and
 $(i_x+1, i_y)$; vertical V-links between $(i_x, i_y)$ and $(i_x, i_y+1)$).
 
@@ -664,7 +679,447 @@ would break I/O.
 
 ---
 
-## 14. Mapping back to experimental units
+## 14. The AQH lattice — anomalous Floquet topology without flux
+
+The IQH lattice realizes integer quantum Hall via a Peierls phase pattern that gives
+each plaquette a fixed flux $\Phi_0$. The **anomalous quantum Hall (AQH)** lattice
+gets topological edge modes a different way: each plaquette has *zero* net flux, but
+the periodic-driving structure of the link rings (the photon's "internal time spent in
+the link") creates a non-trivial Floquet bulk band. This was first proposed by
+Liang–Chong (2013), then refined into the photonic anomalous Floquet topological insulator
+(AFI) of Pasek–Chong (2014) and the experimental realizations by Mittal–Hafezi (2019).
+
+### Brick-wall geometry
+
+The AQH lattice in the simulator is a **brick-wall** (zigzag) arrangement on a
+$(2 N_x - 1) \times (2 N_y - 1)$ grid:
+
+- **Site rings** sit on rows where, in narrow rows ($r$ even), they're at odd $c$
+  (1, 3, 5, …); in wide rows ($r$ odd), they're at even $c$ (0, 2, 4, …).
+- **Link rings** sit at every odd $(c, r)$ — i.e., at the centers of the diamond
+  plaquettes formed between four neighboring sites.
+
+For $N_x = N_y = 4$: 24 site rings and 9 link rings, arranged on a 7×7 grid.
+
+```
+Row 0 (narrow):   ·  ○  ·  ○  ·  ○  ·          ← sites at (1,0),(3,0),(5,0)
+Row 1 (wide):     ○  □  ○  □  ○  □  ○          ← sites at even c, links at odd c
+Row 2 (narrow):   ·  ○  ·  ○  ·  ○  ·
+Row 3 (wide):     ○  □  ○  □  ○  □  ○
+   ...
+```
+where ○ = site ring, □ = link ring, · = empty grid position.
+
+Each link ring couples to **four neighboring sites** — N, E, S, W — through four
+DCs (slots 0, 4, 8, 12 of the link). Each site couples to **at most two links**:
+narrow-row sites have one V-link neighbor (N or S), wide-row sites have two H-link
+neighbors (E and W).
+
+### AQH slot conventions
+
+Site rings use $N_z$ grid points per ring (default 16; configurable in the UI
+to 16, 32, 48, or 64). Four cardinal slots at quarter-turns are reserved for
+link DCs:
+
+| Slot | Direction | Meaning |
+|---|---|---|
+| 0 (`SLOT_AQH_N`) | North | Link above the site (smaller $r$ direction) |
+| $N_z/4$ (`SLOT_AQH_E`) | East | Link to the right (larger $c$) |
+| $N_z/2$ (`SLOT_AQH_S`) | South | Link below the site (larger $r$) |
+| $3 N_z/4$ (`SLOT_AQH_W`) | West | Link to the left (smaller $c$) |
+
+Link rings use the **same four cardinal slots**, each pointing toward the corresponding
+neighboring site. The DC pairing is **antipodal**: ring A's slot $s$ couples to ring B's
+slot $(s + N_z/2) \bmod N_z$. So a site's slot 0 (N pointing toward the link) couples to
+the link's slot $N_z/2$ (S pointing back toward the site). This antipodal pairing is what
+encodes the geometric fact that two externally tangent rings have opposite circulation
+senses at the tangent point.
+
+### Default bus placement
+
+For an AQH lattice with $N_x, N_y \geq 2$:
+
+- IN bus: bottom-row narrow site at grid $(1, 2 N_y - 2)$
+- OUT bus: top-row narrow site at grid $(1, 0)$
+
+Both bus sites are narrow-row and have a single V-link neighbor (N for the OUT site,
+S for the IN site). The bus DC is placed on the slot **opposite** to the link
+neighbor — so for IN (link is N at slot 0), the bus sits at slot $N_z/2$ (S, visually below
+the lattice); for OUT (link is S at slot $N_z/2$), the bus sits at slot 0 (N, visually above).
+
+### Floquet-topology mechanism (sketch)
+
+Heuristically: a photon entering a site ring spends some time (∝ link length / v_g)
+inside the link before reaching a neighbor. During that time it "circulates" inside
+the link ring, accumulating a phase that depends on which arc it traverses. The
+brick-wall geometry forces a *cyclic* sequence of arc traversals — N → E → S → W
+type — that mimics a periodic drive. With anti-resonant link rings ($\beta_0\eta = \pi$),
+the resulting Floquet bulk Hamiltonian has nontrivial winding number even though the
+Bloch bands themselves have zero Chern number. The edge modes are anomalous: they
+exist on the boundary of *every* gap, not just the central one, and they're robust to
+disorder of the link couplings.
+
+In the simulator, the topology is set entirely by the geometric connectivity — there
+is no $\Phi_0$ knob for AQH. The $\beta_0\eta$ parameter still controls anti-resonance
+(set it to $\pi$ for ideal AQH; sweep across 0–4π to see Floquet phase transitions).
+
+### State vector layout
+
+For an AQH template:
+
+$$\text{state\_size} = n_{\rm sites} \cdot N_z + n_{\rm links} \cdot N_z$$
+
+with $n_{\rm sites} = N_x (N_y - 1) + N_y (N_x - 1)$ and $n_{\rm links} = (N_x - 1)(N_y - 1)$.
+For $4 \times 4$: $24 \cdot 16 + 9 \cdot 16 = 528$ unknowns.
+
+Sites and links each get their own 1-based index space (i.e., site indices and link
+indices don't overlap), and the state vector is laid out as: all sites first
+(in canonical row-major brick-wall order), then all links. Lookup: `site_idx(i, k)` and
+`link_idx(j, k)`.
+
+### IQH vs AQH sparse system
+
+The AQH template assembly uses the same machinery as IQH but with different connectivity:
+
+- For each site equation at slot $k$: if $k \in \{0, 4, 8, 12\}$ AND there's a link
+  in that direction, write a 2-term equation (self-coupling + cross-coupling from the
+  link's antipodal slot's predecessor). Otherwise free propagation.
+- For each link equation at slot $k$: if $k \in \{0, 4, 8, 12\}$ AND there's a site
+  in that direction, write a 2-term equation (self-coupling + cross-coupling from the
+  site's antipodal slot's predecessor). Otherwise free propagation.
+
+There are **no Peierls phases in the AQH template** — the synthetic gauge structure
+is encoded entirely in *which slots are paired*. (Compare IQH, where two sites are
+paired through a single link with a directional Peierls extra phase.)
+
+---
+
+## 15. Per-ring chirality flip (DC tangent direction)
+
+The user can toggle the bus DC tangent direction through a UI control labeled
+`Input: left` / `Input: right`. Internally this is a boolean parameter `dc_flip` on
+the template builders. Despite its name, the flip propagates through the entire TMM —
+**every** ring's slot ordering reverses, not just the bus DCs.
+
+### Physical motivation
+
+In a real device, each directional coupler has a tangent line where two waveguides
+run side-by-side. Light injected from one end of the bus moves rightward and couples
+into the ring at the DC, exciting whichever ring mode (CW or CCW pseudospin) shares
+the bus's propagation direction at the tangent point. Inject from the other end and
+the bus light moves leftward, coupling to the other pseudospin.
+
+This is realized as a *physical mirror* of the bus DC layout — flipping which end of
+the bus is labeled "input" is equivalent to mirror-reflecting the bus tangent. And
+once you mirror-flip *one* DC, you have to flip *all* of them consistently, otherwise
+the geometry doesn't close.
+
+### Implementation: slot-reversal everywhere
+
+In our TMM, the slot ordering $0 \to 1 \to 2 \to ... \to N_z - 1 \to 0$ encodes one
+direction of circulation. The propagation rule $E_k = p \cdot E_{k-1}$ says light at
+slot $k$ comes from slot $k-1$ — i.e., light flows in the +k direction. To flip the
+direction, we'd want $E_k = p \cdot E_{k+1}$ instead.
+
+Concretely, when `dc_flip = True`, we set a sign $\sigma = -1$ (and $\sigma = +1$
+otherwise) and replace every
+
+$$k_{\rm prev} = (k - 1) \bmod N_z \;\longrightarrow\; k_{\rm prev} = (k - \sigma) \bmod N_z$$
+
+throughout the template. The same sign affects:
+
+- The site-ring propagation predecessor: `(k - σ) % Nz_site`
+- The link-ring propagation predecessor: `(k - σ) % Nz_link`
+- The cross-coupling readout slot at every DC: `(neighbor_slot - σ) % Nz`
+- The bus through-port readout slot: `(s_in_slot - σ) % Nz_site` and same for drop
+
+The bus injection slot and the cross-coupling source slots are unchanged — the
+physical bus DC sits at the same grid position regardless of which direction the
+light flows. Only the **direction** of propagation past the DC changes.
+
+### Behavior on a single ring
+
+For an isolated bus-coupled ring at $\omega = 0$ (resonance), $\kappa_{\rm ex} = 0.163$:
+
+- `dc_flip = False`: photon enters at slot 0, propagates 0 → 1 → 2 → … → 15 → 0.
+  At step $n$ it has reached slot $n \bmod 16$.
+- `dc_flip = True`: photon enters at slot 0, propagates 0 → 15 → 14 → … → 1 → 0.
+  At step $n$ it has reached slot $-n \bmod 16$.
+
+Steady-state $|E|^2$ and bus port amplitudes are **identical** between the two
+configurations (this is reciprocity for a passive linear system) — but the
+*transient* trajectory is the mirror image. The time-evolution dialog clearly shows
+the photon racing one direction vs the other around the ring.
+
+### Behavior on a multi-ring lattice
+
+For multi-ring lattices (IQH or AQH), flipping every ring's slot ordering also
+flips the **sign of the topological invariant**:
+
+- IQH: the Peierls phases $\theta = -2\Phi_0 \cdot i_y$ on H-links are now traversed
+  in reverse order around each ring, which is equivalent to flipping the sign of $\Phi_0$.
+  The Chern number changes sign and the chiral edge mode reverses direction around
+  the boundary.
+- AQH: flipping the slot ordering reverses the cyclic Floquet drive's direction,
+  which also flips the sign of the anomalous Chern number.
+
+This is **physically correct**: in experiment, mirror-flipping every DC tangent
+direction (which is what `dc_flip = True` represents) IS what produces the opposite
+topological phase. The simulator's spectrum at flipped-vs-default is identical in
+shape (by reciprocity) but mirrored about $\omega = 0$ for IQH, and similarly
+reorganized for AQH.
+
+### What does NOT change
+
+- Total |E|² stored in the lattice at any peak frequency (reciprocity).
+- The $|s_{\rm thru}|^2$, $|s_{\rm drop}|^2$ spectrum — only its $\omega$ axis is
+  potentially mirrored when interpreted on top of the underlying Peierls/Floquet
+  band structure.
+- The schematic geometry (ring positions don't move).
+
+### What DOES change
+
+- Bus arrow directions and "input"/"through" port labels in the rendered lattice.
+- For multi-ring lattices: the spatial pattern of the chiral edge mode at any peak
+  (it now hugs the boundary going the opposite way).
+- The transient propagation direction visible in time-evolution.
+
+---
+
+## 16. Time-evolution dialog
+
+The simulator includes a separate window for time-resolved field evolution at a
+chosen detuning $\omega$. The dialog opens after a peak is selected (or any
+spectrum click) and runs the Ikeda iteration:
+
+$$\vec{E}^{(n+1)} = R \, \vec{E}^{(n)} + \vec{s}, \qquad \vec{E}^{(0)} = \vec{0}$$
+
+over $N_{\rm steps}$ propagation steps (each step = $\Delta z = 1/N_z$ in time, so
+$N_z$ steps = one round-trip).
+
+### Outputs
+
+- A live field-distribution plot at every recorded frame, showing the photon
+  redistributing around the lattice.
+- A drop-port amplitude trace $|s_{\rm drop}^{(n)}|^2$ vs round-trip number, with the
+  steady-state reference line $|s_{\rm drop}^{\infty}|^2$ overlaid (computed from
+  `solve_one`/`solve_one_aqh` for cross-validation).
+- Optional MP4 / GIF export of the animation.
+
+The slider at the bottom scrubs through the recorded frames. The reference dashed line
+is computed using the per-step propagation factor
+
+$$p_{\rm site}(\omega) = e^{i\omega/N_z - \alpha/(2 N_z)}$$
+
+and the steady-state field at the drop bus's predecessor slot:
+
+$$s_{\rm drop}^{\infty} = i \kappa_{\rm ex} \cdot p_{\rm site} \cdot E_\infty[\text{site\_idx}(\text{drop\_site}, k_{\rm pred})]$$
+
+where $k_{\rm pred} = (k_{\rm drop\_slot} - \sigma) \bmod N_z$ uses the same direction
+sign $\sigma$ as the rest of the template.
+
+### Convergence considerations
+
+For high-Q cavities (small $\alpha$), the Ikeda iteration is slow to settle: the
+spectral radius of $R$ is close to 1, and the field takes many round-trips to reach
+steady state. The simulator's defaults ($\alpha = 0.01$, $\kappa_{\rm ex} = 0.359$,
+$\kappa_J = 0.9$) give buildup times of order a few hundred round-trips for high-Q
+edge modes (the matched coupling regime $\kappa_{\rm ex} = \kappa_J/\sqrt{2\pi}$
+balances loading vs internal hopping). The dialog lets the user pick any $N_{\rm rt}$
+to record; values of 200–2000 are typical.
+
+### Lattice-type-aware rendering
+
+The dialog renders fields with `plot_field_distribution` (IQH) or `draw_aqh_schematic`
+(AQH), dispatched via the cached `self._is_aqh` flag set at dialog construction time.
+Both renderers respect the template's `dc_flip` flag and flip bus arrows accordingly.
+
+---
+
+## 17. Field-distribution rendering
+
+The state vector $\vec{E}$ has a complex amplitude $E_{i,k}$ at every (ring, slot)
+position. Visualizing it requires a mapping from $(i, k)$ pairs to physical $(x, y)$
+positions on the canvas. This section explains the conventions used by
+`plot_field_distribution` (IQH) and `draw_aqh_schematic` (AQH).
+
+### Ring perimeter parametrization
+
+Each ring is drawn as a rounded square of half-side $h \approx 0.24$ and corner
+radius $r_c \approx 0.07$ (in lattice grid units). The function
+`_rounded_square_perimeter(cx, cy, h, rc, n)` returns $n$ equispaced points
+$(x(s), y(s))$ around the perimeter, parametrized by $s \in [0, 1)$ starting at
+the right edge near the **smaller-y** corner $(cx + h, cy - (h - rc))$ and
+proceeding **counter-clockwise** in plot-data coordinates (math y-up).
+Schematically:
+
+| $s$ range | Position |
+|---|---|
+| $[0, \approx 0.19]$ | Right edge going up |
+| $\approx 0.25$ | Top-right corner |
+| $[0.25, \approx 0.44]$ | Top edge going left |
+| $\approx 0.50$ | Top-left corner |
+| $[0.50, \approx 0.69]$ | Left edge going down |
+| $\approx 0.75$ | Bottom-left corner |
+| $[0.75, \approx 0.94]$ | Bottom edge going right |
+
+The midpoints of the four straight edges (in plot data) sit at:
+
+| Edge | $s_{\rm frac}$ midpoint |
+|---|---|
+| Right edge (large $x$) | $\approx 0.094$ |
+| Top edge (large $y$) | $\approx 0.345$ |
+| Left edge (small $x$) | $\approx 0.594$ |
+| Bottom edge (small $y$) | $\approx 0.845$ |
+
+These exact values are specific to $h = 0.24$, $r_c = 0.07$ and would shift if
+the corner radius changes. The renderer hardcodes 0.345 and 0.845 — if you
+adjust the ring geometry, recompute these.
+
+### `_draw_ring`: phase_offset and chirality
+
+`_draw_ring(ax, center, half_side, intensities, I_max, ..., phase_offset,
+chirality, corner_radius)` colors each segment of the perimeter by the
+intensity at the corresponding slot. The mapping from segment $s_{\rm frac}$
+to slot index $k$ is
+
+$$
+k_{\rm continuous} =
+\begin{cases}
+((s_{\rm frac} - \text{phase\_offset}) \bmod 1) \cdot N_z & \text{chirality} = +1 \\
+((\text{phase\_offset} - s_{\rm frac}) \bmod 1) \cdot N_z & \text{chirality} = -1
+\end{cases}
+$$
+
+So `phase_offset` rotates which $s_{\rm frac}$ corresponds to slot 0, and
+`chirality` controls whether slot index advances in the same direction as
+$s_{\rm frac}$ (+1) or opposite (-1).
+
+### IQH rendering
+
+In IQH plots the y-axis is **not inverted** — math y-up == visual y-up. Slot
+conventions in the template:
+
+| Slot | Cardinal | Position on ring |
+|---|---|---|
+| 0 (`SLOT_BUS`) | South | Bottom (visually) |
+| $N_z/4$ (`SLOT_RIGHT`) | East | Right |
+| $N_z/2$ (`SLOT_TOP`) | North | Top |
+| $5 N_z/8$ (`SLOT_BOTTOM`) | South-ish | Bottom (V-link far DC) |
+| $3 N_z/4$ (`SLOT_LEFT`) | West | Left |
+
+For all sites — **IN, OUT, and bulk alike** — `_draw_ring` is called with
+`phase_offset = 0.75, chirality = +1`. With this setting:
+
+- Slot 0 lands at $s_{\rm frac} = 0.75$ = bottom-left corner ≈ visually bottom.
+- Slot $N_z/4$ at $s_{\rm frac} = 0$ = right-edge bottom corner ≈ visually right.
+- Slot $N_z/2$ at $s_{\rm frac} = 0.25$ = top-right corner ≈ visually top.
+- Slot $3 N_z/4$ at $s_{\rm frac} = 0.5$ = top-left corner ≈ visually left.
+
+Earlier code used `phase_offset = 0.25` for non-IN sites, which placed slot 0
+at the top-right corner — a half-perimeter rotation that made the chiral edge
+mode meander appear **inverted** on the bottom and right edges. Setting
+`phase_offset = 0.75` for all sites fixes this so the meander reads correctly
+as: site bright on the lattice-exterior side, link bright on the lattice-interior
+side, alternating around the boundary.
+
+For links:
+
+- H-links: `phase_offset = 0.5, chirality = -1`. Slot 0 (= near DC, on the
+  link's visually-left side facing the left site) lands at $s_{\rm frac} = 0.5$
+  = top-left corner.
+- V-links: `phase_offset = 0.75, chirality = -1`. Slot 0 (= near DC, on the
+  link's visually-bottom side facing the bottom site) lands at the bottom-left
+  corner.
+
+The `chirality = -1` for links reflects the fact that two externally tangent
+rings circulate with opposite chirality at the tangent point: site rings
+circulate CCW and link rings circulate CW (or vice versa, depending on the
+bus injection direction set by `dc_flip`).
+
+### AQH rendering
+
+AQH uses `ax.invert_yaxis()`: smaller plot_y is **visually upward**. This
+inverts the relationship between math-orientation and visual-orientation.
+Slot conventions:
+
+| Slot | Cardinal | Direction in $(c, r)$ | Visual position |
+|---|---|---|---|
+| 0 (`SLOT_AQH_N`) | North | $(0, -1)$ smaller r | Top |
+| $N_z/4$ (`SLOT_AQH_E`) | East | $(+1, 0)$ larger c | Right |
+| $N_z/2$ (`SLOT_AQH_S`) | South | $(0, +1)$ larger r | Bottom |
+| $3 N_z/4$ (`SLOT_AQH_W`) | West | $(-1, 0)$ smaller c | Left |
+
+A subtlety arises from the y-inversion. To put slot 0 (= N) at visually-top,
+we want it at small plot_y, which corresponds to $s_{\rm frac} \approx 0.845$
+(the bottom edge of the perimeter parametrization in plot-data coordinates).
+With `chirality = -1`, slot index advances in the -$s_{\rm frac}$ direction =
+CCW visually under inversion — matching the bus injection physics, in which
+light entering the bus from the left port causes the IN site's ring photon
+to circulate CCW visually.
+
+But there's a **second subtlety**: AQH sites come in two geometric flavours
+based on which directions their link neighbors lie in:
+
+- **V-sites**: link neighbors at N and/or S only. Their natural axis of light
+  flow is vertical (top ↔ bottom).
+- **H-sites**: link neighbors at E and/or W only. Their natural axis is
+  horizontal (left ↔ right).
+
+For both, the slot indexing 0(N)→$N_z/4$(E)→$N_z/2$(S)→$3N_z/4$(W) is the same
+in the template. But the renderer needs different `phase_offset` values to
+align the bright halves with the physical DC positions:
+
+| Site type | `phase_offset` | Slot 0 | Slot $N_z/4$ | Slot $N_z/2$ | Slot $3 N_z/4$ |
+|---|---|---|---|---|---|
+| V-site | 0.845 | top ✓ | left | bottom ✓ | right |
+| H-site | 0.345 | bottom | right ✓ | top | left ✓ |
+
+In V-sites, slot 0 (N) lands correctly at visually-top, and slot $N_z/2$ (S)
+correctly at visually-bottom — the two slots that actually have link
+connections. The unused E/W slots end up on visually-left/right (swapped from
+what their labels suggest), but since no DC sits there for a V-site, this
+doesn't matter visually.
+
+In H-sites, slot $N_z/4$ (E) lands at visually-right and slot $3 N_z/4$ (W)
+at visually-left — the two slots with link connections. The unused N/S slots
+swap top/bottom, which again doesn't matter because no DC sits there.
+
+Edge sites (with only one link neighbor) inherit the orientation from
+whichever neighbor they have: N or S → V-orientation (`phase_offset = 0.845`),
+E or W → H-orientation (`phase_offset = 0.345`).
+
+For links, all use `phase_offset = 0.845, chirality = +1`. The +1 chirality is
+opposite the sites' -1, again reflecting the tangent-circles rule (opposite
+circulation between coupled rings).
+
+### Visual diagnostic: the chiral edge mode
+
+When the simulator sits at a frequency in the topological gap, with non-trivial
+loss ($\alpha \gtrsim 0.05$) so the photon decays before completing a full edge
+loop, the chiral edge mode becomes plainly visible as a sequence of bright
+arcs hugging the boundary. The pattern is a **meander**:
+
+- On the bottom edge: site rings bright on their bottom half, H-links between
+  them bright on their top half (or vice versa, depending on `dc_flip`).
+- On the right edge: site rings bright on their right half, V-links between
+  them bright on their left half.
+- And similarly on the top and left edges.
+
+This pattern arises because the photon's instantaneous arc location reflects
+which way it's propagating: at any DC, two externally tangent rings have
+opposite-sense circulation, so the bright arcs alternate between
+lattice-exterior (sites) and lattice-interior (links) as the photon traces the
+boundary.
+
+If the meander appears **inverted** (sites and links bright on the same side)
+or **rotated**, suspect a `phase_offset` or `chirality` mismatch in the
+renderer — the field data is generally correct (it's just the linear physics),
+but visualizing it requires the right slot-to-position mapping.
+
+---
+
+## 18. Mapping back to experimental units
 
 Everything in the simulator is in dimensionless units. To compare to a real device,
 multiply by the right physical scale:
@@ -679,15 +1134,18 @@ multiply by the right physical scale:
 | $1/\alpha$ | $T_R$ | Photon lifetime (round-trips, ÷ then × $T_R$ for sec) |
 
 For a device with $\Gamma_{\rm FSR} = 750$ GHz and the simulator defaults:
-- $\kappa_{\rm ex} = 0.163$ → bus linewidth = 20 GHz (FWHM)
-- $\kappa_J = 0.409$ → $J = 20$ GHz
+- $\kappa_J = 0.9$ → $J = \kappa_J^2 \Gamma_{\rm FSR}/(2\pi) \approx 96.7$ GHz
+- $\kappa_{\rm ex} = 0.359 = \kappa_J / \sqrt{2\pi}$ → bus linewidth $\kappa_{\rm ex}^2 \Gamma_{\rm FSR} \approx 96.7$ GHz
+  (matched to the hopping rate $J$, the "critical coupling to the lattice mode"
+  condition; the factor $1/\sqrt{2\pi}$ accounts for the differing definitions
+  of $\kappa$ vs $J$ in the two formulas)
 - $\alpha = 0.01$ → intrinsic linewidth = 1.2 GHz, $Q_{\rm int} \approx 1.6 \times 10^5$
 - $T_R = 1.33$ ps
 - Photon lifetime $\sim 100 T_R = 133$ ps
 
 ---
 
-## 15. What this simulator does NOT model
+## 19. What this simulator does NOT model
 
 - **Nonlinearity (Kerr, FWM).** $R$ is linear and frequency-flat. Adding Kerr:
   rebuild $R$ each step with $|E_k|^2$-dependent extra phase. ~50 lines of code.
@@ -699,9 +1157,12 @@ For a device with $\Gamma_{\rm FSR} = 750$ GHz and the simulator defaults:
 - **Polarization.** Single-mode waveguide; one scalar amplitude per grid.
 - **Pulse shape.** Source $\vec{s}$ is constant — CW excitation. For pulsed input,
   modulate $\vec{s}$ in time.
-- **Backward-propagating modes.** Each ring carries one chirality only (the simulator
-  picks chirality based on phase_offset in the visualization, but the actual physics
-  is a single complex amplitude per grid point — effectively a single-mode picture).
+- **Backscattering between CW and CCW modes (single-pseudospin TMM).** Each ring
+  carries one complex amplitude per grid point — only one pseudospin is simulated
+  at a time. The `dc_flip` toggle (§15) switches *which* pseudospin sector is
+  simulated, but the two cannot coexist or couple. Modeling sidewall-roughness-induced
+  backscattering would require **doubling the state space** to include both pseudospins
+  simultaneously and adding cross-coupling at every DC.
 
 All of these are extensions worth pursuing as subsequent layers. The linear classical
 CW simulator is the foundation that everything builds on.
@@ -718,17 +1179,37 @@ CW simulator is the foundation that everything builds on.
 | $T_R$ | dimensionless | Site round-trip time, set to 1 |
 | $\Gamma_{\rm FSR}$ | dimensionless | FSR in Hz, set to 1 |
 | $\Delta z$ | $1/N_z$ | Per-step length (and time) |
-| $N_z$ | int (16) | Discretization count per ring |
+| $N_z^{\rm site}, N_z^{\rm link}$ | int | Discretization count per ring (site, link). Default 16, exposed as a UI spinbox; can be 16, 32, 48, 64. Site slot positions are at multiples of $N_z/16$ for IQH (BUS=0, RIGHT=$N_z/4$, TOP=$N_z/2$, BOTTOM=$5 N_z/8$, LEFT=$3 N_z/4$) and $N_z/4$ for AQH (N=0, E=$N_z/4$, S=$N_z/2$, W=$3 N_z/4$). |
 | $\omega$ | dimensionless | Detuning from carrier (in $\omega$-units, not Hz) |
 | $\omega/(2\pi)$ | dimensionless | Detuning in FSR units (axis label) |
 | $p$ | complex | Per-step propagation factor |
 | $\alpha$ | dimensionless | Field-loss per unit length |
 | $\beta_0\eta$ | dimensionless | Static link anti-resonance phase, ideally $\pi$ |
-| $\Phi_0$ | dimensionless | Synthetic flux per plaquette |
+| $\Phi_0$ | dimensionless | IQH synthetic flux per plaquette (Landau gauge) |
 | $\kappa_{\rm ex}, \kappa_J$ | dimensionless | DC amplitude couplings, in $[0, 1]$ |
 | $t_{\rm ex}, t_J$ | dimensionless | DC straight-through, $\sqrt{1-\kappa^2}$ |
+| $\sigma$ | $\pm 1$ | Slot-ordering direction sign (+1 default, -1 if `dc_flip`) |
+| $N_x, N_y$ | int | Lattice dimensions (sites per row/col for IQH; brick-wall extent for AQH) |
 | $\vec{E}$ | complex array | State vector, length state_size |
 | $R$ | sparse complex matrix | Propagator, size state_size² |
 | $\vec{s}$ | complex array | Source vector, length state_size |
 | $\vec{E}_\infty$ | complex array | Steady-state field |
 | $a_{\rm thru}, a_{\rm drop}$ | complex | Bus output amplitudes |
+
+### Lattice-type-specific quantities
+
+| Quantity | IQH | AQH |
+|---|---|---|
+| Site grid | $N_x \times N_y$ square | $(2 N_x - 1) \times (2 N_y - 1)$ brick-wall |
+| Number of sites | $N_x N_y$ | $N_x(N_y - 1) + N_y(N_x - 1)$ |
+| Number of links | $(N_x - 1) N_y + N_x (N_y - 1)$ | $(N_x - 1)(N_y - 1)$ |
+| Site DC slots used | 0 (bus), $N_z/4$, $N_z/2$, $5 N_z/8$, $3 N_z/4$ | 0, $N_z/4$, $N_z/2$, $3 N_z/4$ (cardinal) |
+| Link DC slots used | 0 (near), $N_z/2$ (far) | 0, $N_z/4$, $N_z/2$, $3 N_z/4$ (four neighbors) |
+| Synthetic-gauge mechanism | Peierls phase $\theta = -2\Phi_0 i_y$ on H-links | Antipodal slot pairing in brick-wall geometry |
+| Topological invariant | Chern number ($\propto \Phi_0$) | Anomalous winding number |
+| Default IN bus position | site $(0, 0)$, slot 0 (south) | bottom-row site, slot $N_z/2$ (south) |
+| Default OUT bus position | site $(0, N_y-1)$, slot $N_z/2$ (north) | top-row site, slot 0 (north) |
+| Renderer phase_offset (sites) | 0.75 (all sites) | 0.845 (V-orientation), 0.345 (H-orientation) |
+| Renderer chirality (sites) | +1 | -1 |
+| Renderer phase_offset (links) | 0.5 (H), 0.75 (V) | 0.845 |
+| Renderer chirality (links) | -1 | +1 |
