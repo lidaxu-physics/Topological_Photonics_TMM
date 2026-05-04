@@ -1674,6 +1674,144 @@ class TimeEvolveWorker(QThread):
             self.failed.emit(repr(e))
 
 
+class ExportOptionsDialog(QDialog):
+    """Dialog asking the user which subset of recorded frames to export
+    and at what playback FPS, before kicking off MP4/GIF encoding.
+
+    The full set of frames recorded by the time-evolution worker can be
+    large (hundreds-thousands), and naively encoding all of them is slow
+    and produces files that are mostly redundant. This dialog lets the
+    user pick a round-trip window plus a stride, and shows live counts
+    and an estimated duration before they commit.
+
+    Returns (start_rt, end_rt, stride, fps) on accept(); None on cancel.
+    """
+    def __init__(self, parent, total_frames, rt_min, rt_max,
+                  default_fps, fmt='MP4'):
+        super().__init__(parent)
+        self.setWindowTitle(f'Export {fmt} — Options')
+        self.setModal(True)
+        self.total_frames = total_frames
+        self.rt_min = rt_min
+        self.rt_max = rt_max
+
+        # Default stride: aim for ≤150 frames in the output, matching the
+        # previous GIF behavior (which uniformly subsampled to 150 with no
+        # user control). Use ceiling division so we never exceed the cap.
+        # User can override either way in the dialog.
+        default_target = 150
+        default_stride = max(1, (total_frames + default_target - 1) // default_target)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(6)
+
+        # Header note
+        hdr = QLabel(
+            f'<b>Recorded:</b> {total_frames} frames '
+            f'spanning round-trips {rt_min:.1f} → {rt_max:.1f}.<br>'
+            f'<span style="color:#7a8aaa;">Pick a window and a stride to '
+            f'control how many frames get encoded.</span>')
+        hdr.setWordWrap(True)
+        layout.addWidget(hdr)
+
+        # Form for window + stride + fps
+        form = QGridLayout()
+        form.setSpacing(4)
+
+        # Round-trip window: from / to
+        form.addWidget(QLabel('Start round-trip:'), 0, 0)
+        self.spn_start = QDoubleSpinBox()
+        self.spn_start.setRange(rt_min, rt_max)
+        self.spn_start.setDecimals(1); self.spn_start.setSingleStep(1.0)
+        self.spn_start.setValue(rt_min)
+        self.spn_start.setSuffix(' rt')
+        form.addWidget(self.spn_start, 0, 1)
+
+        form.addWidget(QLabel('End round-trip:'), 1, 0)
+        self.spn_end = QDoubleSpinBox()
+        self.spn_end.setRange(rt_min, rt_max)
+        self.spn_end.setDecimals(1); self.spn_end.setSingleStep(1.0)
+        self.spn_end.setValue(rt_max)
+        self.spn_end.setSuffix(' rt')
+        form.addWidget(self.spn_end, 1, 1)
+
+        # Stride
+        form.addWidget(QLabel('Frame stride:'), 2, 0)
+        self.spn_stride = QSpinBox()
+        self.spn_stride.setRange(1, max(1, total_frames))
+        self.spn_stride.setValue(default_stride)
+        self.spn_stride.setSuffix(' (every Nth frame)')
+        form.addWidget(self.spn_stride, 2, 1)
+
+        # Playback FPS
+        form.addWidget(QLabel('Playback FPS:'), 3, 0)
+        self.spn_fps = QSpinBox()
+        self.spn_fps.setRange(1, 120); self.spn_fps.setValue(default_fps)
+        form.addWidget(self.spn_fps, 3, 1)
+
+        layout.addLayout(form)
+
+        # Live summary
+        self.summary = QLabel()
+        self.summary.setStyleSheet('color:#9ad9c8;font-size:11px;')
+        self.summary.setWordWrap(True)
+        layout.addWidget(self.summary)
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        self.btn_cancel = QPushButton('Cancel')
+        self.btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(self.btn_cancel)
+        self.btn_ok = QPushButton(f'Encode {fmt}')
+        self.btn_ok.setDefault(True)
+        self.btn_ok.clicked.connect(self.accept)
+        btn_row.addWidget(self.btn_ok)
+        layout.addLayout(btn_row)
+
+        # Wire summary updates
+        for w in (self.spn_start, self.spn_end, self.spn_stride, self.spn_fps):
+            w.valueChanged.connect(self._update_summary)
+        self._update_summary()
+
+    def _update_summary(self):
+        # Count how many frames will actually be exported. The worker's
+        # frames are uniformly spaced in step number, so the rt range
+        # maps linearly to a frame index range.
+        start = self.spn_start.value()
+        end = self.spn_end.value()
+        if end <= start:
+            self.summary.setText(
+                '<span style="color:#ff7a8a;">⚠ End must be greater than '
+                'start.</span>')
+            self.btn_ok.setEnabled(False)
+            return
+        # Fraction of recorded frames in [start, end]
+        frac = (end - start) / max(self.rt_max - self.rt_min, 1e-12)
+        frames_in_window = max(1, int(round(self.total_frames * frac)))
+        stride = self.spn_stride.value()
+        n_out = max(1, frames_in_window // stride)
+        fps = self.spn_fps.value()
+        duration_s = n_out / fps
+        # Rough size estimate (very rough — depends on resolution &
+        # entropy). Just give an order of magnitude per format.
+        self.summary.setText(
+            f'Will encode <b>{n_out}</b> frames at {fps} fps '
+            f'(~{duration_s:.1f} s playback). '
+            f'Window covers {frames_in_window} recorded frames; '
+            f'stride={stride} drops every {stride - 1 if stride > 1 else 0} '
+            f'between kept frames.')
+        self.btn_ok.setEnabled(True)
+
+    def get_settings(self):
+        return dict(
+            start_rt=self.spn_start.value(),
+            end_rt=self.spn_end.value(),
+            stride=self.spn_stride.value(),
+            fps=self.spn_fps.value(),
+        )
+
+
 class TimeEvolutionDialog(QDialog):
     """Standalone window: iterate the cavity buildup and show drop(t) +
     field intensity vs time, with a slider to scrub through round trips.
@@ -1794,14 +1932,14 @@ class TimeEvolutionDialog(QDialog):
             'Larger files than MP4 but works out-of-the-box.')
         ctl.addWidget(self.btn_gif)
 
-        ctl.addWidget(QLabel('fps:'))
+        ctl.addWidget(QLabel('default fps:'))
         self.spn_fps = QSpinBox()
         self.spn_fps.setRange(1, 120)
         self.spn_fps.setValue(15)
         self.spn_fps.setFixedWidth(55)
         self.spn_fps.setToolTip(
-            'Playback frame rate of the exported MP4 / GIF.\n'
-            'Higher = faster playback, shorter video.\n'
+            'Default playback frame rate suggested in the export dialog.\n'
+            'You can override it per-export when you click Save MP4 / GIF.\n'
             'Typical: 15-30 fps.')
         ctl.addWidget(self.spn_fps)
 
@@ -1992,10 +2130,59 @@ class TimeEvolutionDialog(QDialog):
         self._cbar.outline.set_edgecolor('#3a4560')
         self.canvas.draw_idle()
 
+    # ── Frame selection helper for exports ──────────────────────────────────
+    def _pick_export_frames(self, start_rt, end_rt, stride):
+        """Return a numpy array of frame indices into self.steps that fall
+        within [start_rt, end_rt] in round-trip units, sampled every
+        `stride`-th frame.
+
+        Used by both MP4 and GIF export paths after the user confirms the
+        ExportOptionsDialog. self.steps and self.E_hist are assumed
+        synchronized arrays of length n_recorded.
+        """
+        Nz_site = self.template["Nz_site"]
+        rts = np.array(self.steps, dtype=float) / Nz_site
+        # Find the first/last indices satisfying the bound
+        in_window = np.where((rts >= start_rt) & (rts <= end_rt))[0]
+        if in_window.size == 0:
+            return np.array([], dtype=int)
+        i0 = int(in_window[0]); i1 = int(in_window[-1])
+        sel = np.arange(i0, i1 + 1, max(1, int(stride)))
+        return sel
+
+    def _open_export_dialog(self, fmt):
+        """Show the ExportOptionsDialog. Returns the settings dict on
+        accept, or None on cancel.
+        """
+        if self.E_hist is None or self.steps is None:
+            return None
+        Nz_site = self.template["Nz_site"]
+        total = len(self.steps)
+        rt_min = float(self.steps[0]) / Nz_site
+        rt_max = float(self.steps[-1]) / Nz_site
+        default_fps = self.spn_fps.value() if hasattr(self, 'spn_fps') else 15
+        dlg = ExportOptionsDialog(self, total_frames=total,
+                                       rt_min=rt_min, rt_max=rt_max,
+                                       default_fps=default_fps, fmt=fmt)
+        if dlg.exec_() != QDialog.Accepted:
+            return None
+        return dlg.get_settings()
+
     # ── MP4 ─────────────────────────────────────────────────────────────────
     def _save_mp4(self):
         if self.E_hist is None:
             return
+        settings = self._open_export_dialog('MP4')
+        if settings is None:
+            return
+        sel = self._pick_export_frames(settings['start_rt'],
+                                              settings['end_rt'],
+                                              settings['stride'])
+        if sel.size == 0:
+            QMessageBox.warning(self, 'No frames',
+                                  'Selected window contains no recorded frames.')
+            return
+
         ts = time.strftime('%Y%m%d_%H%M%S')
         save_dir = self.save_dir or os.getcwd()
         os.makedirs(save_dir, exist_ok=True)
@@ -2006,11 +2193,11 @@ class TimeEvolutionDialog(QDialog):
         ax_lat = fig.add_axes([0.04, 0.04, 0.84, 0.92])
         cax = fig.add_axes([0.90, 0.10, 0.025, 0.78])
 
-        n_frames = len(self.steps)
+        n_frames = sel.size
         Nz_site = self.template["Nz_site"]
         sm0 = self._render_field(
-            ax_lat, self.E_hist[0],
-            title=f'round-trip n = {self.steps[0]/Nz_site:.1f}',
+            ax_lat, self.E_hist[sel[0]],
+            title=f'round-trip n = {self.steps[sel[0]]/Nz_site:.1f}',
             I_max=self.I_max_ss)
         cbar = fig.colorbar(sm0, cax=cax,
                               label=r'$|E|^2 / \max|E_\infty|^2$')
@@ -2019,15 +2206,17 @@ class TimeEvolutionDialog(QDialog):
         cbar.outline.set_edgecolor('#3a4560')
 
         def update(i):
+            # i is the index into sel; map to the actual recorded frame index.
+            real = int(sel[i])
             ax_lat.clear()
             self._render_field(
-                ax_lat, self.E_hist[i],
-                title=f'round-trip n = {self.steps[i]/Nz_site:.1f}',
+                ax_lat, self.E_hist[real],
+                title=f'round-trip n = {self.steps[real]/Nz_site:.1f}',
                 I_max=self.I_max_ss)
             return []
 
-        # User-set FPS (defaults to 15 in the spinbox).
-        fps = self.spn_fps.value()
+        # FPS comes from the export-options dialog (overrides the main UI default).
+        fps = settings['fps']
 
         try:
             writer = FFMpegWriter(fps=fps, bitrate=2400,
@@ -2040,7 +2229,11 @@ class TimeEvolutionDialog(QDialog):
                        savefig_kwargs={'facecolor': DARK_BG})
             self.btn_mp4.setText('💾 Save MP4')
             self.btn_mp4.setEnabled(True)
-            QMessageBox.information(self, 'Saved', f'MP4 written:\n{path}')
+            QMessageBox.information(
+                self, 'Saved',
+                f'MP4 written:\n{path}\n\n'
+                f'{n_frames} frames @ {fps} fps '
+                f'(playback: {n_frames/fps:.1f} s).')
         except Exception as e:
             self.btn_mp4.setText('💾 Save MP4')
             self.btn_mp4.setEnabled(True)
@@ -2053,10 +2246,9 @@ class TimeEvolutionDialog(QDialog):
     def _save_gif(self):
         if self.E_hist is None:
             return
-        ts = time.strftime('%Y%m%d_%H%M%S')
-        save_dir = self.save_dir or os.getcwd()
-        os.makedirs(save_dir, exist_ok=True)
-        path = os.path.join(save_dir, f'TMM_evolution_{ts}.gif')
+        settings = self._open_export_dialog('GIF')
+        if settings is None:
+            return
 
         # Use the Agg backend for offscreen rendering. matplotlib already
         # imported FigureCanvasAgg above — get a fresh canvas to render to.
@@ -2070,18 +2262,33 @@ class TimeEvolutionDialog(QDialog):
                 'Install with: pip install Pillow')
             return
 
-        n_frames = len(self.steps)
-        # Cap frame count to keep GIF size manageable. GIF is large per
-        # frame; >150 frames produces multi-MB files. Subsample uniformly.
-        max_frames = 150
-        if n_frames > max_frames:
-            sel = np.linspace(0, n_frames - 1, max_frames).astype(int)
-        else:
-            sel = np.arange(n_frames)
+        sel = self._pick_export_frames(settings['start_rt'],
+                                              settings['end_rt'],
+                                              settings['stride'])
+        if sel.size == 0:
+            QMessageBox.warning(self, 'No frames',
+                                  'Selected window contains no recorded frames.')
+            return
 
-        # User-set FPS (defaults to 15 in the spinbox).
-        fps = self.spn_fps.value()
+        ts = time.strftime('%Y%m%d_%H%M%S')
+        save_dir = self.save_dir or os.getcwd()
+        os.makedirs(save_dir, exist_ok=True)
+        path = os.path.join(save_dir, f'TMM_evolution_{ts}.gif')
+
+        n_frames = sel.size
+        # FPS now comes from the dialog. Soft-warn if the result will be
+        # > 200 frames since GIFs at that size get huge fast.
+        fps = settings['fps']
         duration_ms = max(1, int(round(1000.0 / fps)))
+        if n_frames > 200:
+            ans = QMessageBox.question(
+                self, 'Large GIF',
+                f'You\'re about to encode {n_frames} frames into a GIF.\n'
+                f'GIF compression is poor — this could be 50+ MB.\n\n'
+                f'Continue anyway?',
+                QMessageBox.Yes | QMessageBox.No)
+            if ans != QMessageBox.Yes:
+                return
 
         # Offscreen figure, sized smaller than MP4 since GIF can't handle
         # high-resolution well — and big GIFs are huge.
@@ -2130,11 +2337,11 @@ class TimeEvolutionDialog(QDialog):
                             disposal=2)
             self.btn_gif.setText('💾 Save GIF')
             self.btn_gif.setEnabled(True)
-            n_used = len(sel)
-            note = (f'\n\n(Subsampled {n_frames} → {n_used} frames to keep '
-                     f'file size manageable.)' if n_frames > max_frames else '')
             QMessageBox.information(
-                self, 'Saved', f'GIF written:\n{path}{note}')
+                self, 'Saved',
+                f'GIF written:\n{path}\n\n'
+                f'{n_frames} frames @ {fps} fps '
+                f'(playback: {n_frames/fps:.1f} s).')
         except Exception as e:
             self.btn_gif.setText('💾 Save GIF')
             self.btn_gif.setEnabled(True)
@@ -2329,8 +2536,8 @@ class MainWindow(QMainWindow):
         dl.addWidget(self.cmb_dcflip,    0, 3)
 
         # Row 1: Nx, Ny side-by-side (label above each spinbox)
-        self.spn_nx = QSpinBox(); self.spn_nx.setRange(1, 12); self.spn_nx.setValue(4)
-        self.spn_ny = QSpinBox(); self.spn_ny.setRange(1, 12); self.spn_ny.setValue(4)
+        self.spn_nx = QSpinBox(); self.spn_nx.setRange(1, 12); self.spn_nx.setValue(6)
+        self.spn_ny = QSpinBox(); self.spn_ny.setRange(1, 12); self.spn_ny.setValue(6)
         self.spn_nx.valueChanged.connect(self._on_size_change)
         self.spn_ny.valueChanged.connect(self._on_size_change)
         dl.addWidget(QLabel('Nx'),       1, 0)
@@ -2399,16 +2606,15 @@ class MainWindow(QMainWindow):
         cl = QGridLayout(gc); cl.setSpacing(3)
 
         # κ_ex slider/spinbox (range 0.001 - 0.99 mapped to 1-990).
-        # Default 0.359 = κ_J / √(2π). The bus extraction rate
-        # κ_ex² · FSR matches the tight-binding hopping rate
+        # Default 0.199 = κ_J / √(2π) with κ_J = 0.5. The bus extraction
+        # rate κ_ex² · FSR matches the tight-binding hopping rate
         # J = κ_J² · FSR / (2π), making the bus coupling and the
-        # site-link hopping rates equal. With default κ_J = 0.9,
-        # this is the "matched" choice.
+        # site-link hopping rates equal — the "matched" choice.
         self.sld_kex = QSlider(Qt.Horizontal)
-        self.sld_kex.setRange(1, 990); self.sld_kex.setValue(359)
+        self.sld_kex.setRange(1, 990); self.sld_kex.setValue(199)
         self.spn_kex = QDoubleSpinBox()
         self.spn_kex.setRange(0.001, 0.99); self.spn_kex.setDecimals(3)
-        self.spn_kex.setSingleStep(0.005); self.spn_kex.setValue(0.359)
+        self.spn_kex.setSingleStep(0.005); self.spn_kex.setValue(0.199)
         self.spn_kex.setFixedWidth(70)
         self.sld_kex.valueChanged.connect(lambda v: self.spn_kex.setValue(v / 1000.))
         self.spn_kex.valueChanged.connect(lambda v: self.sld_kex.setValue(int(round(v * 1000))))
@@ -2418,15 +2624,15 @@ class MainWindow(QMainWindow):
         cl.addWidget(self.sld_kex, 0, 1, 1, 2); cl.addWidget(self.spn_kex, 0, 3)
 
         # κ_J slider/spinbox.
-        # Default 0.9 ↔ κ_J² = 0.81 ↔ J ≈ 96.7 GHz at 750 GHz FSR
+        # Default 0.5 ↔ κ_J² = 0.25 ↔ J ≈ 29.8 GHz at 750 GHz FSR
         # (using J = κ_J²·FSR/(2π) — see THEORY.md §6 for the factor of 2π).
-        # This is a strong-coupling regime that produces clear chiral
-        # edge mode features even in small lattices.
+        # Moderate coupling: clear topological gap, reasonable buildup
+        # times for time-evolution at the default α = 0.01.
         self.sld_kJ = QSlider(Qt.Horizontal)
-        self.sld_kJ.setRange(1, 990); self.sld_kJ.setValue(900)
+        self.sld_kJ.setRange(1, 990); self.sld_kJ.setValue(500)
         self.spn_kJ = QDoubleSpinBox()
         self.spn_kJ.setRange(0.001, 0.99); self.spn_kJ.setDecimals(3)
-        self.spn_kJ.setSingleStep(0.005); self.spn_kJ.setValue(0.9)
+        self.spn_kJ.setSingleStep(0.005); self.spn_kJ.setValue(0.5)
         self.spn_kJ.setFixedWidth(70)
         self.sld_kJ.valueChanged.connect(lambda v: self.spn_kJ.setValue(v / 1000.))
         self.spn_kJ.valueChanged.connect(lambda v: self.sld_kJ.setValue(int(round(v * 1000))))
@@ -2569,6 +2775,31 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'spn_nz'):
             return NZ_SITE
         return int(self.spn_nz.value())
+
+    def _param_widgets(self):
+        """All input widgets that affect the simulation. Disabled while a
+        scan is running so the user can't change parameters mid-compute
+        (which would leave the worker computing one set of params while
+        the UI shows another, and could trigger an invalidate that races
+        the worker's finished signal).
+        """
+        names = (
+            'cmb_lat_type', 'cmb_dcflip',
+            'spn_nx', 'spn_ny',
+            'spn_beta0eta', 'spn_alpha', 'spn_nz',
+            'sld_kex', 'spn_kex', 'sld_kJ', 'spn_kJ',
+            'sld_phi', 'spn_phi',
+            'spn_omin', 'spn_omax', 'spn_npts',
+        )
+        return [getattr(self, n) for n in names if hasattr(self, n)]
+
+    def _set_params_enabled(self, enabled: bool):
+        """Enable/disable all parameter widgets at once."""
+        for w in self._param_widgets():
+            try:
+                w.setEnabled(enabled)
+            except Exception:
+                pass
 
     def _on_nz_change(self, _):
         """User changed Nz/ring. This rebuilds every template and the
@@ -2836,6 +3067,7 @@ class MainWindow(QMainWindow):
             )
 
         self.btn_run.setEnabled(False); self.btn_run.setText('Computing…')
+        self._set_params_enabled(False)
         self.progress.setValue(0)
         self.status.showMessage(f'Scanning {npts} frequencies on a {Nx}×{Ny} lattice…')
 
@@ -2852,6 +3084,7 @@ class MainWindow(QMainWindow):
 
     def _on_scan_failed(self, msg):
         self.btn_run.setEnabled(True); self.btn_run.setText('▶ Compute')
+        self._set_params_enabled(True)
         QMessageBox.critical(self, 'Scan failed', msg)
         self.status.showMessage(f'Failed: {msg}')
 
@@ -2884,13 +3117,22 @@ class MainWindow(QMainWindow):
         if peaks_omega:
             target = 0.025 * 2 * np.pi
             idx = int(np.argmin([abs(w - target) for w in peaks_omega]))
+            # setCurrentIndex emits currentIndexChanged only when the
+            # value differs from the current one. After a re-run the
+            # auto-picked index may equal the previous selection (often
+            # 0), so the signal silently doesn't fire and the field
+            # panel + btn_tevol never refresh. Force the refresh by
+            # calling _on_peak_changed directly with the chosen index.
+            self.cmb_peak.blockSignals(True)
             self.cmb_peak.setCurrentIndex(idx)
-            # The above triggers _on_peak_changed which renders the field
+            self.cmb_peak.blockSignals(False)
+            self._on_peak_changed(idx)
         else:
             self._invalidate_field_only()
 
         self.btn_save.setEnabled(True)
         self.btn_run.setEnabled(True); self.btn_run.setText('▶ Compute')
+        self._set_params_enabled(True)
         self.status.showMessage(f'Done in {elapsed:.1f} s. Found {len(peaks_omega)} peaks.')
 
     def _draw_spectra(self, highlight_omega=None):
@@ -3092,11 +3334,11 @@ class MainWindow(QMainWindow):
         self._invalidate()
 
     def _reset_all(self):
-        self.spn_nx.setValue(4)
-        self.spn_ny.setValue(4)
+        self.spn_nx.setValue(6)
+        self.spn_ny.setValue(6)
         self.spn_phi.setValue(0.5)        # 0.5 pi
-        self.spn_kex.setValue(0.163)      # κ_ex²·FSR ≈ 20 GHz at 750 GHz FSR
-        self.spn_kJ.setValue(0.409)       # J ≈ 20 GHz (THEORY.md §6)
+        self.spn_kex.setValue(0.199)      # κ_J/√(2π) — matched coupling
+        self.spn_kJ.setValue(0.5)         # J ≈ 29.8 GHz at 750 GHz FSR
         self.spn_beta0eta.setValue(1.0)   # full anti-resonance
         self.spn_alpha.setValue(0.01)     # ~1.2 GHz intrinsic linewidth
         self.spn_omin.setValue(-0.1)
