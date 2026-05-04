@@ -45,17 +45,29 @@ In both, link rings are designed to be **anti-resonant** with the site rings (th
 
 The key quantities in a real device:
 
-| Symbol | Meaning | Typical value |
-|---|---|---|
-| $L_{\rm site}$ | Site ring physical length | $\sim 100\,\mu m$ |
-| $\eta = L_{\rm link} - L_{\rm site}$ | Link extra length | $\sim \lambda_0 / (2 n_{\rm eff}) \sim 250\,\mathrm{nm}$ |
-| $n_{\rm eff}$ | Effective refractive index | $\sim 2$ |
-| $v_g$ | Group velocity | $c/n_g \sim 10^8$ m/s |
-| $\beta(\omega)$ | Propagation constant | $\sim 10^7$ rad/m |
-| $\Gamma_{\rm FSR}$ | Free spectral range $= v_g/L_{\rm site}$ | hundreds of GHz |
-| $\kappa_{\rm ex,exp}$ | Bus-cavity linewidth | tens of GHz |
-| $J$ | Tight-binding hopping rate | tens of GHz |
-| $\alpha$ | Intrinsic field-loss coefficient | small |
+| Symbol | Meaning | Typical value | SiN device (telecom) |
+|---|---|---|---|
+| $\lambda_0$ | Carrier wavelength | — | 1550 nm |
+| $L_{\rm site}$ | Site ring physical length | $\sim 100\,\mu$m | $\sim 190\,\mu$m |
+| $\eta = L_{\rm link} - L_{\rm site}$ | Link extra length | $\sim \lambda_0 / (2 n_{\rm eff})$ | $\sim 440$ nm |
+| $n_{\rm eff}$ | Effective refractive index | $\sim 2$ | $\sim 1.76$ |
+| $n_g$ | Group index | — | $\sim 2.1$ |
+| $v_g$ | Group velocity | $c/n_g \sim 10^8$ m/s | $\sim 1.43 \times 10^8$ m/s |
+| $\beta(\omega)$ | Propagation constant | $\sim 10^7$ rad/m | $2\pi n_{\rm eff}/\lambda_0 \approx 7.1 \times 10^6$ rad/m |
+| $\Gamma_{\rm FSR}$ | Free spectral range $= v_g/L_{\rm site}$ | hundreds of GHz | $\sim 750$ GHz |
+| $\kappa_{\rm ex,exp}$ | Bus-cavity linewidth | tens of GHz | tens of GHz |
+| $J$ | Tight-binding hopping rate | tens of GHz | tens of GHz |
+| $\alpha$ | Intrinsic field-loss coefficient | small | $\sim$ 1–10 GHz linewidth |
+
+The "SiN device" column corresponds to the silicon-nitride coupled-ring platform used in
+the experimental work cited in §14 — the same platform this simulator is built to
+support. The $\eta \approx 440$ nm is the actual device value (set by lithography);
+inverting the anti-resonance condition $\beta_0 \eta = \pi$ then fixes
+$n_{\rm eff} = \lambda_0/(2 \eta) = 1550/880 \approx 1.76$ at telecom (§3). This is on
+the lower side of the "$n_{\rm eff} \approx 2$" rule of thumb because the SiN core is
+relatively thin and the mode extends substantially into the cladding. The group index
+$n_g \approx 2.1$ is larger than $n_{\rm eff}$ because of normal waveguide dispersion
+near 1550 nm.
 
 The simulator works in dimensionless units that absorb the carrier frequency entirely.
 We derive these units carefully below.
@@ -157,10 +169,10 @@ The third piece, $\omega(L_{\rm site} + \eta)/v_g$, is the detuning-dependent ph
 We separate this into the "site-like" part $\omega L_{\rm site}/v_g$ and the small
 correction $\omega \eta / v_g$.
 
-How small is the correction? In real units, $\eta \sim 250$ nm and $L_{\rm site} \sim 100\,\mu$m,
-so $\eta/L_{\rm site} \sim 2 \times 10^{-3}$. The detuning $\omega$ ranges over the FSR,
-so $|\omega L_{\rm site}/v_g| \lesssim 2\pi$. Therefore
-$|\omega \eta/v_g| \lesssim 2\pi \cdot 2 \times 10^{-3} \approx 0.01$ rad — an
+How small is the correction? For the SiN platform of §1 ($\eta \approx 440$ nm,
+$L_{\rm site} \approx 190\,\mu$m), $\eta/L_{\rm site} \approx 2.3 \times 10^{-3}$. The
+detuning $\omega$ ranges over the FSR, so $|\omega L_{\rm site}/v_g| \lesssim 2\pi$.
+Therefore $|\omega \eta/v_g| \lesssim 2\pi \cdot 2.3 \times 10^{-3} \approx 0.015$ rad — an
 order-of-magnitude smaller than any other phase. **It is dropped throughout.**
 
 Equivalently: the link's *frequency-dependent* phase is treated as $\omega L_{\rm site}/v_g$
@@ -289,12 +301,10 @@ Equivalently, $E_k = p \cdot E_{k-1}$ for all $k$. Iterating around the ring:
 
 $$E_0 = p \cdot E_{N_z-1} = p \cdot p \cdot E_{N_z-2} = \cdots = p^{N_z} \cdot E_0$$
 
-So a non-trivial solution exists iff $p^{N_z} = 1$:
+So a non-trivial solution exists iff $p^{N_z} = 1$. Computing the exponent:
 
-$$e^{i\omega L_{\rm site} - \alpha L_{\rm site}/2} \cdot 1^{N_z-1} \cdot p^{N_z} = e^{i\omega - \alpha/2}$$
-
-Wait — let me redo this. $p^{N_z} = e^{i\omega \cdot N_z \Delta z - \alpha \cdot N_z \Delta z / 2}
-= e^{i\omega L_{\rm site} - \alpha L_{\rm site}/2} = e^{i\omega - \alpha/2}$.
+$$p^{N_z} = e^{i\omega \cdot N_z \Delta z \,-\, \alpha \cdot N_z \Delta z / 2}
+= e^{i\omega L_{\rm site} - \alpha L_{\rm site}/2} = e^{i\omega - \alpha/2}$$
 
 So in the lossless limit ($\alpha \to 0$), the resonance condition $p^{N_z} = 1$
 becomes $e^{i\omega} = 1$, i.e., $\omega = 2\pi M$ for integer $M$. **One FSR per
@@ -326,12 +336,12 @@ $$E_0 = t_{\rm ex} \cdot p \cdot E_{N_z-1} + i\kappa_{\rm ex} \cdot a_{\rm in}$$
 
 This **replaces** the free-propagation rule for $k = 0$ only:
 
-$$\boxed{
+$$
 \begin{aligned}
 E_0(t + \Delta t) &= t_{\rm ex} \cdot p \cdot E_{N_z-1}(t) \;+\; i\kappa_{\rm ex} \\
 E_k(t + \Delta t) &= p \cdot E_{k-1}(t), \quad k = 1, \ldots, N_z - 1
 \end{aligned}
-}$$
+$$
 
 In matrix form: $R$ keeps its sparsity pattern but row 0 has $t_{\rm ex} \cdot p$
 in column $N_z-1$ instead of $p$. The source vector $\vec{s}$ has $i\kappa_{\rm ex}$
@@ -456,7 +466,7 @@ of the lower site (slot 8), "far" = BOTTOM of the upper site (slot 10).
 
 The total state size for an $N_x \times N_y$ lattice is
 
-$$\text{state\_size} = N_x N_y \cdot N_z + (N_x - 1) N_y \cdot N_z + N_x (N_y - 1) \cdot N_z$$
+$$N_{\rm state} = N_x N_y \cdot N_z + (N_x - 1) N_y \cdot N_z + N_x (N_y - 1) \cdot N_z$$
 
 For 4×4: $16 \cdot 16 + 12 \cdot 16 + 12 \cdot 16 = 640$ unknowns. The state vector is
 laid out as: all sites first (in row-major order), then all H-links, then all V-links,
@@ -579,8 +589,9 @@ Just the one entry, no source term.
 
 At a slot connected to a link ring (e.g., slot 4 = right H-link):
 
-$$E_{\rm site, k} = t_J \cdot p_{\rm site} \cdot E_{\rm site, k-1} + i\kappa_J \cdot p_{\rm link} \cdot e^{i\theta_{\rm extra}} \cdot E_{\rm link, k_{\rm link\_prev}}$$
+$$E_{\rm site, k} = t_J \cdot p_{\rm site} \cdot E_{\rm site, k-1} + i\kappa_J \cdot p_{\rm link} \cdot e^{i\theta_{\rm extra}} \cdot E_{\rm link, k'_{\rm link}}$$
 
+where $k'_{\rm link}$ is the predecessor of the link's DC slot (i.e. one $\Delta z$ before the DC, on the link's side).
 Two entries: a self-coupling from the previous site grid (with $t_J$ instead of $1$
 or $p$), and a cross-coupling from the partner link's grid just before its DC.
 The extra phase $\theta_{\rm extra}$ at the link's DC slot is the Peierls $\pm\theta/2$
@@ -590,9 +601,9 @@ contribution.
 
 At link slot 0 ("near") or $N_z/2$ ("far"):
 
-$$E_{\rm link, k} = t_J \cdot p_{\rm link} \cdot e^{i\theta_{\rm extra}} \cdot E_{\rm link, k-1}
-+ i\kappa_J \cdot p_{\rm site} \cdot E_{\rm site, k_{\rm site\_prev}}$$
+$$E_{\rm link, k} = t_J \cdot p_{\rm link} \cdot e^{i\theta_{\rm extra}} \cdot E_{\rm link, k-1} + i\kappa_J \cdot p_{\rm site} \cdot E_{\rm site, k'_{\rm site}}$$
 
+where $k'_{\rm site}$ is the predecessor of the site's DC slot.
 Two entries: a self-coupling from the previous link grid, and a cross-coupling from
 the site partner's grid just before its DC.
 
@@ -685,9 +696,17 @@ The IQH lattice realizes integer quantum Hall via a Peierls phase pattern that g
 each plaquette a fixed flux $\Phi_0$. The **anomalous quantum Hall (AQH)** lattice
 gets topological edge modes a different way: each plaquette has *zero* net flux, but
 the periodic-driving structure of the link rings (the photon's "internal time spent in
-the link") creates a non-trivial Floquet bulk band. This was first proposed by
-Liang–Chong (2013), then refined into the photonic anomalous Floquet topological insulator
-(AFI) of Pasek–Chong (2014) and the experimental realizations by Mittal–Hafezi (2019).
+the link") creates a non-trivial Floquet bulk band. The AQH lattice was first proposed
+by Liang–Chong (2013), refined into the photonic anomalous Floquet topological insulator
+(AFI) of Pasek–Chong (2014), and first realized experimentally on a silicon photonic
+platform by Mittal–Hafezi (2019). More recent silicon-nitride implementations of the
+same brick-wall lattice — the platform this simulator is built to support — have
+demonstrated nonlinear topological frequency combs [Flower, Mehrabad, Xu *et al.*,
+*Science* **384**, 1356 (2024)], multi-timescale mode-locked states with independently
+tunable single-ring (∼1 THz) and topological super-ring (∼3 GHz) timescales [Xu,
+Mehrabad, Flower *et al.*, *Sci. Adv.* **11**, eadw7696 (2025)], and a passive
+nested frequency-phase matching mechanism for wafer-scale multi-harmonic generation
+[Mehrabad, Xu *et al.*, *Science* (2025), doi:10.1126/science.adu6368].
 
 ### Brick-wall geometry
 
@@ -767,7 +786,7 @@ is no $\Phi_0$ knob for AQH. The $\beta_0\eta$ parameter still controls anti-res
 
 For an AQH template:
 
-$$\text{state\_size} = n_{\rm sites} \cdot N_z + n_{\rm links} \cdot N_z$$
+$$N_{\rm state} = n_{\rm sites} \cdot N_z + n_{\rm links} \cdot N_z$$
 
 with $n_{\rm sites} = N_x (N_y - 1) + N_y (N_x - 1)$ and $n_{\rm links} = (N_x - 1)(N_y - 1)$.
 For $4 \times 4$: $24 \cdot 16 + 9 \cdot 16 = 528$ unknowns.
@@ -791,6 +810,28 @@ The AQH template assembly uses the same machinery as IQH but with different conn
 There are **no Peierls phases in the AQH template** — the synthetic gauge structure
 is encoded entirely in *which slots are paired*. (Compare IQH, where two sites are
 paired through a single link with a directional Peierls extra phase.)
+
+### Connection to the experimental SiN platform
+
+The AQH lattice in this simulator targets the silicon-nitride coupled-ring platform
+used in the recent experimental work above. The mapping between simulator quantities
+and experimental observables is direct: the steady-state spectrum at low pump power
+gives the linear edge-band structure resolved in *Science* **384**, 1356 (2024); the
+fast and slow timescales of the multi-timescale mode-locking work [*Sci. Adv.* **11**,
+eadw7696 (2025)] correspond, respectively, to the single-ring round-trip time
+$T_R = 1/\Gamma_{\rm FSR}$ and the topological super-ring time $\sim N_{\rm edge} T_R$
+where $N_{\rm edge}$ is the number of sites along the edge (the slow GHz timescale =
+fast THz timescale ÷ edge length); and the nested frequency-phase matching scheme of
+the wafer-scale harmonic generation work [*Science* (2025), doi:10.1126/science.adu6368]
+relies on the two-timescale density of states that this simulator's spectrum
+visualizes directly. Three caveats apply when comparing simulator output to those
+experiments: this simulator is **linear** (the comb formation, mode-locking, and
+harmonic generation all require Kerr/$\chi^{(3)}$ or $\chi^{(2)}$ nonlinearity not
+included here, see §19); it simulates **one pseudospin** at a time (so does not
+capture CW/CCW backscattering from sidewall roughness, which can matter at high $Q$);
+and the rendered fields are **steady-state envelopes** at a single pump frequency,
+not soliton or mode-locked temporal profiles. The simulator is the linear scaffold
+on top of which those nonlinear effects are built.
 
 ---
 
@@ -913,10 +954,10 @@ $$p_{\rm site}(\omega) = e^{i\omega/N_z - \alpha/(2 N_z)}$$
 
 and the steady-state field at the drop bus's predecessor slot:
 
-$$s_{\rm drop}^{\infty} = i \kappa_{\rm ex} \cdot p_{\rm site} \cdot E_\infty[\text{site\_idx}(\text{drop\_site}, k_{\rm pred})]$$
+$$s_{\rm drop}^{\infty} = i \kappa_{\rm ex} \cdot p_{\rm site} \cdot E_\infty\!\left[i_{\rm drop},\, k_{\rm pred}\right]$$
 
-where $k_{\rm pred} = (k_{\rm drop\_slot} - \sigma) \bmod N_z$ uses the same direction
-sign $\sigma$ as the rest of the template.
+where $i_{\rm drop}$ is the drop site's index and $k_{\rm pred} = (k_{\rm slot} - \sigma) \bmod N_z$ uses the same direction
+sign $\sigma$ as the rest of the template, with $k_{\rm slot}$ the drop bus DC slot.
 
 ### Convergence considerations
 
@@ -986,14 +1027,15 @@ to slot index $k$ is
 $$
 k_{\rm continuous} =
 \begin{cases}
-((s_{\rm frac} - \text{phase\_offset}) \bmod 1) \cdot N_z & \text{chirality} = +1 \\
-((\text{phase\_offset} - s_{\rm frac}) \bmod 1) \cdot N_z & \text{chirality} = -1
+((s_{\rm frac} - \phi_0) \bmod 1) \cdot N_z & \chi = +1 \\
+((\phi_0 - s_{\rm frac}) \bmod 1) \cdot N_z & \chi = -1
 \end{cases}
 $$
 
-So `phase_offset` rotates which $s_{\rm frac}$ corresponds to slot 0, and
-`chirality` controls whether slot index advances in the same direction as
-$s_{\rm frac}$ (+1) or opposite (-1).
+where $\phi_0$ is the renderer's `phase_offset` parameter and $\chi \in \{+1, -1\}$
+is the `chirality` parameter. So `phase_offset` rotates which $s_{\rm frac}$
+corresponds to slot 0, and `chirality` controls whether slot index advances in the
+same direction as $s_{\rm frac}$ (+1) or opposite (-1).
 
 ### IQH rendering
 
@@ -1133,7 +1175,8 @@ multiply by the right physical scale:
 | $T_R = 1$ | $1/\Gamma_{\rm FSR}^{\rm exp}$ | Round-trip time in seconds |
 | $1/\alpha$ | $T_R$ | Photon lifetime (round-trips, ÷ then × $T_R$ for sec) |
 
-For a device with $\Gamma_{\rm FSR} = 750$ GHz and the simulator defaults:
+For a device with $\Gamma_{\rm FSR} = 750$ GHz and the simulator defaults
+(matching the SiN platform of §1):
 - $\kappa_J = 0.9$ → $J = \kappa_J^2 \Gamma_{\rm FSR}/(2\pi) \approx 96.7$ GHz
 - $\kappa_{\rm ex} = 0.359 = \kappa_J / \sqrt{2\pi}$ → bus linewidth $\kappa_{\rm ex}^2 \Gamma_{\rm FSR} \approx 96.7$ GHz
   (matched to the hopping rate $J$, the "critical coupling to the lattice mode"
@@ -1190,9 +1233,9 @@ CW simulator is the foundation that everything builds on.
 | $t_{\rm ex}, t_J$ | dimensionless | DC straight-through, $\sqrt{1-\kappa^2}$ |
 | $\sigma$ | $\pm 1$ | Slot-ordering direction sign (+1 default, -1 if `dc_flip`) |
 | $N_x, N_y$ | int | Lattice dimensions (sites per row/col for IQH; brick-wall extent for AQH) |
-| $\vec{E}$ | complex array | State vector, length state_size |
-| $R$ | sparse complex matrix | Propagator, size state_size² |
-| $\vec{s}$ | complex array | Source vector, length state_size |
+| $\vec{E}$ | complex array | State vector, length $N_{\rm state}$ |
+| $R$ | sparse complex matrix | Propagator, size $N_{\rm state} \times N_{\rm state}$ |
+| $\vec{s}$ | complex array | Source vector, length $N_{\rm state}$ |
 | $\vec{E}_\infty$ | complex array | Steady-state field |
 | $a_{\rm thru}, a_{\rm drop}$ | complex | Bus output amplitudes |
 
