@@ -50,7 +50,7 @@ for one in the topological gap to see the chiral edge mode hugging the boundary.
 | Control | Default | Meaning |
 |---|---|---|
 | Lattice type | IQH | IQH (Peierls flux) or AQH (brick-wall Floquet) |
-| Nx × Ny | 6 × 6 | Lattice size (1–12 each; cost scales as ~$N^3$) |
+| Nx × Ny | 6 × 6 | Lattice size (1–12 each; cost scales as $\sim N^3$) |
 | $\Phi_0$ | 0.5 π | IQH synthetic flux per plaquette (hidden in AQH mode) |
 | $\kappa_{\rm ex}$ | 0.199 | Bus coupling, $= \kappa_J/\sqrt{2\pi}$ — matched to the lattice mode |
 | $\kappa_J$ | 0.5 | Hopping coupling — $J \approx 29.8$ GHz at a 750 GHz FSR |
@@ -158,7 +158,7 @@ The key quantities in a real device:
 | Symbol | Meaning | Typical value | SiN device (telecom) |
 |---|---|---|---|
 | $\lambda_0$ | Carrier wavelength | — | 1550 nm |
-| $L_{\rm site}$ | Site ring physical length | $\sim 100 \mu$m | $\sim 190 \mu$m |
+| $L_{\rm site}$ | Site ring physical length | $\sim 100$ μm | $\sim 190$ μm |
 | $\eta = L_{\rm link} - L_{\rm site}$ | Link extra length | $\sim \lambda_0 / (2 n_{\rm eff})$ | $\sim 440$ nm |
 | $n_{\rm eff}$ | Effective refractive index | $\sim 2$ | $\sim 1.76$ |
 | $n_g$ | Group index | — | $\sim 2.1$ |
@@ -174,7 +174,7 @@ the experimental work cited in [§14](#14-the-aqh-lattice--anomalous-floquet-top
 support. The $\eta \approx 440$ nm is the actual device value (set by lithography);
 inverting the anti-resonance condition $\beta_0 \eta = \pi$ then fixes
 $n_{\rm eff} = \lambda_0/(2 \eta) = 1550/880 \approx 1.76$ at telecom ([§3](#3-choice-of-frame-the-carrier-wraps-to-identity)). This is on
-the lower side of the "$n_{\rm eff} \approx 2$" rule of thumb because the SiN core is
+the lower side of the $n_{\rm eff} \approx 2$ rule of thumb because the SiN core is
 relatively thin and the mode extends substantially into the cladding. The group index
 $n_g \approx 2.1$ is larger than $n_{\rm eff}$ because of normal waveguide dispersion
 near 1550 nm.
@@ -220,7 +220,7 @@ Note that the *full* amplitude including the carrier is
 $$E_{\rm full}(z) = E(z)   e^{i\beta_0 z} = E(0)   e^{i \beta_0 z}   e^{i\omega z/v_g - \alpha z/2}$$
 
 We will work in the envelope frame, so the $e^{i\beta_0 z}$ part disappears
-into the definition of "$E$" and only the $e^{i\omega z/v_g}$ part remains. But we still
+into the definition of $E$ and only the $e^{i\omega z/v_g}$ part remains. But we still
 have to account for $\beta_0 z$ when comparing two waveguides of different lengths
 (site vs link), because the *difference* in $\beta_0 \cdot \mathrm{length}$ between
 the two doesn't trivially cancel.
@@ -255,7 +255,7 @@ The detuning $\omega$ is now measured *from the resonance*. Site resonances occu
 $\omega L_{\rm site}/v_g = 2\pi M$ for integer $M$, i.e., $\omega/(2\pi) \cdot \Gamma_{\rm FSR}^{-1} = M$
 where $\Gamma_{\rm FSR} = v_g/L_{\rm site}$ is the free spectral range.
 
-The carrier wavelength has been **completely absorbed** into the choice of "$\omega = 0$".
+The carrier wavelength has been **completely absorbed** into the choice of $\omega = 0$.
 $\beta_0$ no longer appears in any equation. Only the detuning $\omega$ matters.
 
 ### What about the link ring?
@@ -280,7 +280,7 @@ We separate this into the "site-like" part $\omega L_{\rm site}/v_g$ and the sma
 correction $\omega \eta / v_g$.
 
 How small is the correction? For the SiN platform of [§1](#1-setting) ($\eta \approx 440$ nm,
-$L_{\rm site} \approx 190 \mu$m), $\eta/L_{\rm site} \approx 2.3 \times 10^{-3}$. The
+$L_{\rm site} \approx 190$ μm), $\eta/L_{\rm site} \approx 2.3 \times 10^{-3}$. The
 detuning $\omega$ ranges over the FSR, so $|\omega L_{\rm site}/v_g| \lesssim 2\pi$.
 Therefore $|\omega \eta/v_g| \lesssim 2\pi \cdot 2.3 \times 10^{-3} \approx 0.015$ rad — an
 order-of-magnitude smaller than any other phase. **It is dropped throughout.**
@@ -1205,7 +1205,7 @@ Slot conventions:
 A subtlety arises from the y-inversion. To put slot 0 (= N) at visually-top,
 we want it at small plot_y, which corresponds to $s_{\rm frac} \approx 0.845$
 (the bottom edge of the perimeter parametrization in plot-data coordinates).
-With `chirality = -1`, slot index advances in the -$s_{\rm frac}$ direction =
+With `chirality = -1`, slot index advances in the $-s_{\rm frac}$ direction =
 CCW visually under inversion — matching the bus injection physics, in which
 light entering the bus from the left port causes the IN site's ring photon
 to circulate CCW visually.
@@ -1218,7 +1218,7 @@ based on which directions their link neighbors lie in:
 - **H-sites**: link neighbors at E and/or W only. Their natural axis is
   horizontal (left ↔ right).
 
-For both, the slot indexing 0(N)→$N_z/4$(E)→$N_z/2$(S)→$3N_z/4$(W) is the same
+For both, the slot indexing 0(N) → $N_z/4$ (E) → $N_z/2$ (S) → $3N_z/4$ (W) is the same
 in the template. But the renderer needs different `phase_offset` values to
 align the bright halves with the physical DC positions:
 
@@ -1327,12 +1327,12 @@ CW simulator is the foundation that everything builds on.
 | Variable | Type | Meaning |
 |---|---|---|
 | $L_{\rm site}$ | dimensionless | Site ring length, set to 1 |
-| $\eta$ | dimensionless (small) | Link extra length, ~$10^{-3}$ |
+| $\eta$ | dimensionless (small) | Link extra length, $\sim 10^{-3}$ |
 | $v_g$ | dimensionless | Group velocity, set to 1 |
 | $T_R$ | dimensionless | Site round-trip time, set to 1 |
 | $\Gamma_{\rm FSR}$ | dimensionless | FSR in Hz, set to 1 |
 | $\Delta z$ | $1/N_z$ | Per-step length (and time) |
-| $N_z^{\rm site}, N_z^{\rm link}$ | int | Discretization count per ring (site, link). Default 16, exposed as a UI spinbox; can be 16, 32, 48, 64. Site slot positions are at multiples of $N_z/16$ for IQH (BUS=0, RIGHT=$N_z/4$, TOP=$N_z/2$, BOTTOM=$5 N_z/8$, LEFT=$3 N_z/4$) and $N_z/4$ for AQH (N=0, E=$N_z/4$, S=$N_z/2$, W=$3 N_z/4$). |
+| $N_z^{\rm site}, N_z^{\rm link}$ | int | Discretization count per ring (site, link). Default 16, exposed as a UI spinbox; can be 16, 32, 48, 64. Site slot positions are at multiples of $N_z/16$ for IQH (BUS at 0, RIGHT at $N_z/4$, TOP at $N_z/2$, BOTTOM at $5 N_z/8$, LEFT at $3 N_z/4$) and $N_z/4$ for AQH (N at 0, E at $N_z/4$, S at $N_z/2$, W at $3 N_z/4$). |
 | $\omega$ | dimensionless | Detuning from carrier (in $\omega$-units, not Hz) |
 | $\omega/(2\pi)$ | dimensionless | Detuning in FSR units (axis label) |
 | $p$ | complex | Per-step propagation factor |
