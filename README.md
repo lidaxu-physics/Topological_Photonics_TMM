@@ -427,9 +427,7 @@ $\Delta\omega = 2\pi$**, which in $\omega/(2\pi)$ axis units is $\Delta = 1$.
 A directional coupler at slot $k = 0$ couples the ring to a bus waveguide. The DC is
 a 2×2 unitary scattering matrix:
 
-$$\begin{pmatrix} a_{\rm thru} \\ E_0 \end{pmatrix} =
-\begin{pmatrix} t_{\rm ex} & i\kappa_{\rm ex} \\ i\kappa_{\rm ex} & t_{\rm ex} \end{pmatrix}
-\begin{pmatrix} a_{\rm in} \\ E_0^{\rm in} \end{pmatrix}$$
+$$\begin{pmatrix} a_{\rm thru} \\ E_0 \end{pmatrix} = \begin{pmatrix} t_{\rm ex} & i\kappa_{\rm ex} \\ i\kappa_{\rm ex} & t_{\rm ex} \end{pmatrix} \begin{pmatrix} a_{\rm in} \\ E_0^{\rm in} \end{pmatrix}$$
 
 with $t_{\rm ex}^2 + \kappa_{\rm ex}^2 = 1$ (lossless DC), $\kappa_{\rm ex} \in [0, 1]$,
 and the $i$ enforcing time-reversal symmetry. Here:
@@ -446,12 +444,7 @@ $$E_0 = t_{\rm ex} \cdot p \cdot E_{N_z-1} + i\kappa_{\rm ex} \cdot a_{\rm in}$$
 
 This **replaces** the free-propagation rule for $k = 0$ only:
 
-$$
-\begin{aligned}
-E_0(t + \Delta t) &= t_{\rm ex} \cdot p \cdot E_{N_z-1}(t)  +  i\kappa_{\rm ex} \\
-E_k(t + \Delta t) &= p \cdot E_{k-1}(t), \quad k = 1, \ldots, N_z - 1
-\end{aligned}
-$$
+$$\begin{aligned} E_0(t + \Delta t) &= t_{\rm ex} \cdot p \cdot E_{N_z-1}(t) + i\kappa_{\rm ex} \\ E_k(t + \Delta t) &= p \cdot E_{k-1}(t), \quad k = 1, \ldots, N_z - 1 \end{aligned}$$
 
 In matrix form: $R$ keeps its sparsity pattern but row 0 has $t_{\rm ex} \cdot p$
 in column $N_z-1$ instead of $p$. The source vector $\vec{s}$ has $i\kappa_{\rm ex}$
