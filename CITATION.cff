@@ -1,0 +1,170 @@
+cff-version: 1.2.0
+title: "IQH/AQH-Lattice TMM Explorer"
+message: >-
+  If you use this software in academic work, please cite both the software
+  (this entry) and the relevant publications listed under "references" below.
+type: software
+authors:
+  - given-names: Lida
+    family-names: Xu
+  - given-names: Mahmoud
+    family-names: Jalali Mehrabad
+  - given-names: "Christopher J."
+    family-names: Flower
+  - given-names: Mohammad
+    family-names: Hafezi
+version: "1.3"
+date-released: "2026-06-29"
+license: MIT
+url: "https://github.com/lidaxu-physics/Topological_Photonics_TMM"
+repository-code: "https://github.com/lidaxu-physics/Topological_Photonics_TMM"
+keywords:
+  - topological photonics
+  - transfer-matrix method
+  - coupled-ring resonators
+  - synthetic gauge field
+  - anomalous Floquet topological insulator
+  - frequency comb
+references:
+  - type: article
+    title: "Observation of topological frequency combs"
+    authors:
+      - given-names: "Christopher J."
+        family-names: Flower
+      - given-names: Mahmoud
+        family-names: Jalali Mehrabad
+      - given-names: Lida
+        family-names: Xu
+      - given-names: Gregory
+        family-names: Moille
+      - given-names: "Daniel G."
+        family-names: Suárez-Forero
+      - given-names: Oğulcan
+        family-names: Örsel
+      - given-names: Gaurav
+        family-names: Bahl
+      - given-names: Yanne
+        family-names: Chembo
+      - given-names: Kartik
+        family-names: Srinivasan
+      - given-names: Sunil
+        family-names: Mittal
+      - given-names: Mohammad
+        family-names: Hafezi
+    journal: Science
+    volume: 384
+    start: 1356
+    end: 1361
+    year: 2024
+    doi: "10.1126/science.ado0053"
+  - type: article
+    title: "On-chip multi-timescale spatiotemporal optical synchronization"
+    authors:
+      - given-names: Lida
+        family-names: Xu
+      - given-names: Mahmoud
+        family-names: Jalali Mehrabad
+      - given-names: "Christopher J."
+        family-names: Flower
+      - given-names: Gregory
+        family-names: Moille
+      - given-names: Alessandro
+        family-names: Restelli
+      - given-names: "Daniel G."
+        family-names: Suárez-Forero
+      - given-names: Yanne
+        family-names: Chembo
+      - given-names: Sunil
+        family-names: Mittal
+      - given-names: Kartik
+        family-names: Srinivasan
+      - given-names: Mohammad
+        family-names: Hafezi
+    journal: Science Advances
+    volume: 11
+    notes: "Article eadw7696"
+    year: 2025
+    doi: "10.1126/sciadv.adw7696"
+  - type: article
+    title: "Multi-timescale frequency-phase matching for high-yield nonlinear photonics"
+    authors:
+      - given-names: Mahmoud
+        family-names: Jalali Mehrabad
+      - given-names: Lida
+        family-names: Xu
+      - given-names: Gregory
+        family-names: Moille
+      - given-names: "Christopher J."
+        family-names: Flower
+      - given-names: Supratik
+        family-names: Sarkar
+      - given-names: Apurva
+        family-names: Padhye
+      - given-names: Shao-Chien
+        family-names: Ou
+      - given-names: "Daniel G."
+        family-names: Suárez-Forero
+      - given-names: Mahdi
+        family-names: Ghafariasl
+      - given-names: Yanne
+        family-names: Chembo
+      - given-names: Kartik
+        family-names: Srinivasan
+      - given-names: Mohammad
+        family-names: Hafezi
+    journal: Science
+    volume: 390
+    start: 612
+    end: 616
+    year: 2025
+    doi: "10.1126/science.adu6368"
+  - type: article
+    title: "Quantum Metamorphosis: Programmable Emergence and the Breakdown of Bulk-Edge Dichotomy in Multiscale Systems"
+    authors:
+      - given-names: Mahmoud
+        family-names: Jalali Mehrabad
+      - given-names: Alireza
+        family-names: Parhizkar
+      - given-names: Lida
+        family-names: Xu
+      - given-names: Gregory
+        family-names: Moille
+      - given-names: Avik
+        family-names: Dutt
+      - given-names: Dirk
+        family-names: Englund
+      - given-names: Kartik
+        family-names: Srinivasan
+      - given-names: Daniel
+        family-names: Leykam
+      - given-names: Mohammad
+        family-names: Hafezi
+    journal: arXiv preprint
+    year: 2025
+    doi: "10.48550/arXiv.2511.13831"
+    url: "https://arxiv.org/abs/2511.13831"
+  - type: article
+    title: "Single-Shot Realization of 10000-Mode Octave-Spanning Artificial Gauge Fields"
+    authors:
+      - given-names: Lida
+        family-names: Xu
+      - given-names: Apurva
+        family-names: Padhye
+      - given-names: Supratik
+        family-names: Sarkar
+      - given-names: Alireza
+        family-names: Parhizkar
+      - given-names: "Christopher J."
+        family-names: Flower
+      - given-names: Gregory
+        family-names: Moille
+      - given-names: Kartik
+        family-names: Srinivasan
+      - given-names: Mohammad
+        family-names: Hafezi
+      - given-names: Mahmoud
+        family-names: Jalali Mehrabad
+    journal: arXiv preprint
+    year: 2026
+    doi: "10.48550/arXiv.2606.23960"
+    url: "https://arxiv.org/abs/2606.23960"

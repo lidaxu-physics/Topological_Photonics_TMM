@@ -104,7 +104,24 @@ values equal.
 
 ## License
 
-CC0 / public domain — use freely.
+MIT — see [LICENSE](LICENSE). You may use, modify, and redistribute the code
+freely, provided you keep the copyright notice and license text. If you use this
+software or build on it in academic work, please also cite the associated
+publications (see [How to cite](#how-to-cite) below).
+
+## How to cite
+
+If you use this simulator in published work, please cite the software (via the
+`CITATION.cff` / GitHub's "Cite this repository" button) and the relevant
+publications it is built to support:
+
+1. C. J. Flower, M. Jalali Mehrabad, L. Xu, *et al.*, "Observation of topological frequency combs," *Science* **384**, 1356–1361 (2024). doi:[10.1126/science.ado0053](https://doi.org/10.1126/science.ado0053)
+2. L. Xu, M. Jalali Mehrabad, C. J. Flower, *et al.*, "On-chip multi-timescale spatiotemporal optical synchronization," *Science Advances* **11**, eadw7696 (2025). doi:[10.1126/sciadv.adw7696](https://doi.org/10.1126/sciadv.adw7696)
+3. M. Jalali Mehrabad, L. Xu, *et al.*, "Multi-timescale frequency-phase matching for high-yield nonlinear photonics," *Science* **390**, 612–616 (2025). doi:[10.1126/science.adu6368](https://doi.org/10.1126/science.adu6368)
+4. M. Jalali Mehrabad, A. Parhizkar, L. Xu, *et al.*, "Quantum Metamorphosis: Programmable Emergence and the Breakdown of Bulk-Edge Dichotomy in Multiscale Systems," arXiv:[2511.13831](https://arxiv.org/abs/2511.13831) (2025).
+5. L. Xu, A. Padhye, S. Sarkar, *et al.*, "Single-Shot Realization of 10000-Mode Octave-Spanning Artificial Gauge Fields," arXiv:[2606.23960](https://arxiv.org/abs/2606.23960) (2026).
+
+The machine-readable `CITATION.cff` carries the full author lists for all five.
 
 ---
 
@@ -809,7 +826,7 @@ demonstrated nonlinear topological frequency combs [Flower, Mehrabad, Xu *et al.
 tunable single-ring (∼1 THz) and topological super-ring (∼3 GHz) timescales [Xu,
 Mehrabad, Flower *et al.*, *Sci. Adv.* **11**, eadw7696 (2025)], and a passive
 nested frequency-phase matching mechanism for wafer-scale multi-harmonic generation
-[Mehrabad, Xu *et al.*, *Science* (2025), doi:10.1126/science.adu6368].
+[Mehrabad, Xu *et al.*, *Science* **390**, 612 (2025), doi:10.1126/science.adu6368].
 
 ### Brick-wall geometry
 
@@ -925,7 +942,7 @@ eadw7696 (2025)] correspond, respectively, to the single-ring round-trip time
 $T_R = 1/\Gamma_{\rm FSR}$ and the topological super-ring time $\sim N_{\rm edge} T_R$
 where $N_{\rm edge}$ is the number of sites along the edge (the slow GHz timescale =
 fast THz timescale ÷ edge length); and the nested frequency-phase matching scheme of
-the wafer-scale harmonic generation work [*Science* (2025), doi:10.1126/science.adu6368]
+the wafer-scale harmonic generation work [*Science* **390**, 612 (2025), doi:10.1126/science.adu6368]
 relies on the two-timescale density of states that this simulator's spectrum
 visualizes directly. Three caveats apply when comparing simulator output to those
 experiments: this simulator is **linear** (the comb formation, mode-locking, and
