@@ -1127,13 +1127,7 @@ chirality, corner_radius)` colors each segment of the perimeter by the
 intensity at the corresponding slot. The mapping from segment $s_{\rm frac}$
 to slot index $k$ is
 
-$$
-k_{\rm continuous} =
-\begin{cases}
-((s_{\rm frac} - \phi_0) \bmod 1) \cdot N_z & \chi = +1 \\
-((\phi_0 - s_{\rm frac}) \bmod 1) \cdot N_z & \chi = -1
-\end{cases}
-$$
+$$k_{\rm continuous} = \begin{cases} ((s_{\rm frac} - \phi_0) \bmod 1) \cdot N_z & \chi = +1 \\ ((\phi_0 - s_{\rm frac}) \bmod 1) \cdot N_z & \chi = -1 \end{cases}$$
 
 where $\phi_0$ is the renderer's `phase_offset` parameter and $\chi \in \{+1, -1\}$
 is the `chirality` parameter. So `phase_offset` rotates which $s_{\rm frac}$
