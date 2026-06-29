@@ -158,7 +158,7 @@ The key quantities in a real device:
 | Symbol | Meaning | Typical value | SiN device (telecom) |
 |---|---|---|---|
 | $\lambda_0$ | Carrier wavelength | — | 1550 nm |
-| $L_{\rm site}$ | Site ring physical length | $\sim 100\,\mu$m | $\sim 190\,\mu$m |
+| $L_{\rm site}$ | Site ring physical length | $\sim 100 \mu$m | $\sim 190 \mu$m |
 | $\eta = L_{\rm link} - L_{\rm site}$ | Link extra length | $\sim \lambda_0 / (2 n_{\rm eff})$ | $\sim 440$ nm |
 | $n_{\rm eff}$ | Effective refractive index | $\sim 2$ | $\sim 1.76$ |
 | $n_g$ | Group index | — | $\sim 2.1$ |
@@ -189,7 +189,7 @@ We derive these units carefully below.
 A single-mode optical waveguide carries an envelope $A(z, t)$ around a carrier
 frequency $\omega_0$. The total electric field is
 
-$$\mathcal{E}(z, t) = \mathrm{Re}\{A(z, t) \, e^{i(\beta_0 z - \omega_0 t)}\}$$
+$$\mathcal{E}(z, t) = \mathrm{Re}\{A(z, t)   e^{i(\beta_0 z - \omega_0 t)}\}$$
 
 In the slowly-varying-envelope approximation, $A$ obeys (lossy free propagation):
 
@@ -217,7 +217,7 @@ between which segments.
 
 Note that the *full* amplitude including the carrier is
 
-$$E_{\rm full}(z) = E(z) \, e^{i\beta_0 z} = E(0) \, e^{i \beta_0 z} \, e^{i\omega z/v_g - \alpha z/2}$$
+$$E_{\rm full}(z) = E(z)   e^{i\beta_0 z} = E(0)   e^{i \beta_0 z}   e^{i\omega z/v_g - \alpha z/2}$$
 
 We will work in the envelope frame, so the $e^{i\beta_0 z}$ part disappears
 into the definition of "$E$" and only the $e^{i\omega z/v_g}$ part remains. But we still
@@ -231,7 +231,7 @@ the two doesn't trivially cancel.
 
 The site ring has length $L_{\rm site}$. A photon's full round-trip phase is
 
-$$\phi_{\rm site}^{\rm RT}(\omega_{\rm abs}) = \beta(\omega_{\rm abs}) \, L_{\rm site}$$
+$$\phi_{\rm site}^{\rm RT}(\omega_{\rm abs}) = \beta(\omega_{\rm abs})   L_{\rm site}$$
 
 where $\omega_{\rm abs} = \omega_0 + \omega$ is the absolute angular frequency. Expanding:
 
@@ -249,7 +249,7 @@ This is a **physical fact about the device** — the laser wavelength is matched
 ring's design. With this choice, the static carrier phase wraps cleanly to identity
 and disappears from the round-trip:
 
-$$\phi_{\rm site}^{\rm RT}(\omega) = 2\pi N + \omega L_{\rm site} / v_g \;\equiv\; \omega L_{\rm site} / v_g \;\;(\text{mod } 2\pi)$$
+$$\phi_{\rm site}^{\rm RT}(\omega) = 2\pi N + \omega L_{\rm site} / v_g  \equiv  \omega L_{\rm site} / v_g   (\text{mod } 2\pi)$$
 
 The detuning $\omega$ is now measured *from the resonance*. Site resonances occur at
 $\omega L_{\rm site}/v_g = 2\pi M$ for integer $M$, i.e., $\omega/(2\pi) \cdot \Gamma_{\rm FSR}^{-1} = M$
@@ -262,7 +262,7 @@ $\beta_0$ no longer appears in any equation. Only the detuning $\omega$ matters.
 
 The link has length $L_{\rm link} = L_{\rm site} + \eta$. Its full round-trip is
 
-$$\phi_{\rm link}^{\rm RT}(\omega) = \beta(\omega_{\rm abs}) \, L_{\rm link}
+$$\phi_{\rm link}^{\rm RT}(\omega) = \beta(\omega_{\rm abs})   L_{\rm link}
 = \beta_0 L_{\rm site} + \beta_0 \eta + \omega(L_{\rm site} + \eta)/v_g$$
 
 The first piece, $\beta_0 L_{\rm site}$, is $2\pi N$ — wraps to identity as before. The
@@ -280,7 +280,7 @@ We separate this into the "site-like" part $\omega L_{\rm site}/v_g$ and the sma
 correction $\omega \eta / v_g$.
 
 How small is the correction? For the SiN platform of [§1](#1-setting) ($\eta \approx 440$ nm,
-$L_{\rm site} \approx 190\,\mu$m), $\eta/L_{\rm site} \approx 2.3 \times 10^{-3}$. The
+$L_{\rm site} \approx 190 \mu$m), $\eta/L_{\rm site} \approx 2.3 \times 10^{-3}$. The
 detuning $\omega$ ranges over the FSR, so $|\omega L_{\rm site}/v_g| \lesssim 2\pi$.
 Therefore $|\omega \eta/v_g| \lesssim 2\pi \cdot 2.3 \times 10^{-3} \approx 0.015$ rad — an
 order-of-magnitude smaller than any other phase. **It is dropped throughout.**
@@ -413,7 +413,7 @@ $$E_0 = p \cdot E_{N_z-1} = p \cdot p \cdot E_{N_z-2} = \cdots = p^{N_z} \cdot E
 
 So a non-trivial solution exists iff $p^{N_z} = 1$. Computing the exponent:
 
-$$p^{N_z} = e^{i\omega \cdot N_z \Delta z \,-\, \alpha \cdot N_z \Delta z / 2}
+$$p^{N_z} = e^{i\omega \cdot N_z \Delta z  -  \alpha \cdot N_z \Delta z / 2}
 = e^{i\omega L_{\rm site} - \alpha L_{\rm site}/2} = e^{i\omega - \alpha/2}$$
 
 So in the lossless limit ($\alpha \to 0$), the resonance condition $p^{N_z} = 1$
@@ -448,7 +448,7 @@ This **replaces** the free-propagation rule for $k = 0$ only:
 
 $$
 \begin{aligned}
-E_0(t + \Delta t) &= t_{\rm ex} \cdot p \cdot E_{N_z-1}(t) \;+\; i\kappa_{\rm ex} \\
+E_0(t + \Delta t) &= t_{\rm ex} \cdot p \cdot E_{N_z-1}(t)  +  i\kappa_{\rm ex} \\
 E_k(t + \Delta t) &= p \cdot E_{k-1}(t), \quad k = 1, \ldots, N_z - 1
 \end{aligned}
 $$
@@ -699,9 +699,9 @@ Just the one entry, no source term.
 
 At a slot connected to a link ring (e.g., slot 4 = right H-link):
 
-$$E_{\rm site, k} = t_J \cdot p_{\rm site} \cdot E_{\rm site, k-1} + i\kappa_J \cdot p_{\rm link} \cdot e^{i\theta_{\rm extra}} \cdot E_{\rm link, k'_{\rm link}}$$
+$$E_{\rm site, k} = t_J \cdot p_{\rm site} \cdot E_{\rm site, k-1} + i\kappa_J \cdot p_{\rm link} \cdot e^{i\theta_{\rm extra}} \cdot E_{\rm link, k_{\rm link}^{\rm prev}}$$
 
-where $k'_{\rm link}$ is the predecessor of the link's DC slot (i.e. one $\Delta z$ before the DC, on the link's side).
+where $k_{\rm link}^{\rm prev}$ is the predecessor of the link's DC slot (i.e. one $\Delta z$ before the DC, on the link's side).
 Two entries: a self-coupling from the previous site grid (with $t_J$ instead of $1$
 or $p$), and a cross-coupling from the partner link's grid just before its DC.
 The extra phase $\theta_{\rm extra}$ at the link's DC slot is the Peierls $\pm\theta/2$
@@ -711,9 +711,9 @@ contribution.
 
 At link slot 0 ("near") or $N_z/2$ ("far"):
 
-$$E_{\rm link, k} = t_J \cdot p_{\rm link} \cdot e^{i\theta_{\rm extra}} \cdot E_{\rm link, k-1} + i\kappa_J \cdot p_{\rm site} \cdot E_{\rm site, k'_{\rm site}}$$
+$$E_{\rm link, k} = t_J \cdot p_{\rm link} \cdot e^{i\theta_{\rm extra}} \cdot E_{\rm link, k-1} + i\kappa_J \cdot p_{\rm site} \cdot E_{\rm site, k_{\rm site}^{\rm prev}}$$
 
-where $k'_{\rm site}$ is the predecessor of the site's DC slot.
+where $k_{\rm site}^{\rm prev}$ is the predecessor of the site's DC slot.
 Two entries: a self-coupling from the previous link grid, and a cross-coupling from
 the site partner's grid just before its DC.
 
@@ -975,7 +975,7 @@ direction, we'd want $E_k = p \cdot E_{k+1}$ instead.
 Concretely, when `dc_flip = True`, we set a sign $\sigma = -1$ (and $\sigma = +1$
 otherwise) and replace every
 
-$$k_{\rm prev} = (k - 1) \bmod N_z \;\longrightarrow\; k_{\rm prev} = (k - \sigma) \bmod N_z$$
+$$k_{\rm prev} = (k - 1) \bmod N_z  \longrightarrow  k_{\rm prev} = (k - \sigma) \bmod N_z$$
 
 throughout the template. The same sign affects:
 
@@ -1043,7 +1043,7 @@ The simulator includes a separate window for time-resolved field evolution at a
 chosen detuning $\omega$. The dialog opens after a peak is selected (or any
 spectrum click) and runs the Ikeda iteration:
 
-$$\vec{E}^{(n+1)} = R \, \vec{E}^{(n)} + \vec{s}, \qquad \vec{E}^{(0)} = \vec{0}$$
+$$\vec{E}^{(n+1)} = R   \vec{E}^{(n)} + \vec{s}, \qquad \vec{E}^{(0)} = \vec{0}$$
 
 over $N_{\rm steps}$ propagation steps (each step = $\Delta z = 1/N_z$ in time, so
 $N_z$ steps = one round-trip).
@@ -1064,7 +1064,7 @@ $$p_{\rm site}(\omega) = e^{i\omega/N_z - \alpha/(2 N_z)}$$
 
 and the steady-state field at the drop bus's predecessor slot:
 
-$$s_{\rm drop}^{\infty} = i \kappa_{\rm ex} \cdot p_{\rm site} \cdot E_\infty\!\left[i_{\rm drop},\, k_{\rm pred}\right]$$
+$$s_{\rm drop}^{\infty} = i \kappa_{\rm ex} \cdot p_{\rm site} \cdot E_\infty\left[i_{\rm drop},  k_{\rm pred}\right]$$
 
 where $i_{\rm drop}$ is the drop site's index and $k_{\rm pred} = (k_{\rm slot} - \sigma) \bmod N_z$ uses the same direction
 sign $\sigma$ as the rest of the template, with $k_{\rm slot}$ the drop bus DC slot.
