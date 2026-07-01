@@ -1,8 +1,8 @@
 # Hafezi-Lattice TMM Explorer
 
-<video src="https://github.com/user-attachments/assets/320085b0-3851-47b7-a85c-6c78b00c24ba" controls muted width="640"></video>
+<video src="https://github.com/user-attachments/assets/320085b0-3851-47b7-a85c-6c78b00c24ba" poster="tmm_poster.png" controls muted width="640"></video>
 
-*Transient dynamics of an edge state forming on an Anomalous Quantum Hall (AQH) lattice — exported from the app. ([download](TMM_evolution_20260629_152017.mp4))*
+*Transient dynamics of an edge state forming on an Anomalous Quantum Hall (AQH) lattice — exported from the app. ([download](TMM_evolution_20260617_190821.mp4))*
 
 A self-contained Python application for the $z$-discretized transfer-matrix method
 (TMM) applied to Hafezi-style coupled-resonator photonic lattices with synthetic
