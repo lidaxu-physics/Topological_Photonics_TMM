@@ -1,6 +1,6 @@
 # Hafezi-Lattice TMM Explorer
 
-<video src="https://github.com/user-attachments/assets/320085b0-3851-47b7-a85c-6c78b00c24ba" poster="tmm_poster.png" controls muted width="640"></video>
+https://github.com/user-attachments/assets/320085b0-3851-47b7-a85c-6c78b00c24ba
 
 *Transient dynamics of an edge state forming on an Anomalous Quantum Hall (AQH) lattice — exported from the app. ([download](TMM_evolution_20260617_190821.mp4))*
 
